@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { OllamaConfig, ProcessingLog, ProcessedFile, CodeSymbol, BusinessRule, ArchViolation, ManualOverride } from '../types';
 
-// آدرس سرور پایتون
+// Python Backend URL
 const API_URL = 'http://localhost:8000/generate-docs';
 
 interface UseRepoProcessorProps {
@@ -11,7 +11,7 @@ interface UseRepoProcessorProps {
   files: FileList | null;
   githubUrl: string;
   docLevels: any;
-  repoPath?: string; // اضافه شده برای حالت محلی سرور
+  repoPath?: string;
   vectorStoreRef: any;
 }
 
@@ -24,7 +24,7 @@ export const useRepoProcessor = () => {
   const [progress, setProgress] = useState(0);
   const [hasContext, setHasContext] = useState(false);
   
-  // States retained for compatibility with UI, though strictly not fully populated by Python backend yet
+  // States retained for compatibility with UI
   const [stats, setStats] = useState<any[]>([]);
   const [knowledgeGraph, setKnowledgeGraph] = useState<Record<string, CodeSymbol>>({});
   const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]); 
@@ -48,7 +48,6 @@ export const useRepoProcessor = () => {
   };
 
   const importSession = (data: any) => {
-      // Implement import logic if needed
       console.log("Import not fully implemented for Python backend mode yet");
   };
   
@@ -65,7 +64,7 @@ export const useRepoProcessor = () => {
     setGeneratedDoc('');
 
     if (inputType !== 'local' || !repoPath) {
-        setError("در حالت Backend-Python، لطفاً مسیر کامل پروژه (Path) را وارد کنید.");
+        setError("In Python-Backend mode, please provide the absolute local path.");
         setIsProcessing(false);
         return;
     }
@@ -97,7 +96,7 @@ export const useRepoProcessor = () => {
       setDocParts(data);
       setHasContext(true);
       
-      // Generate a simple combined doc
+      // Generate a simple combined doc for download
       let fullMarkdown = "";
       if (data.root) fullMarkdown += data.root + "\n\n";
       if (data.arch) fullMarkdown += "# Architecture\n" + data.arch + "\n\n";

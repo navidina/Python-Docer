@@ -1,133 +1,15 @@
 
-import React, { useState, useRef, useEffect, useMemo } from 'react';
-import { File as FileIcon, Folder, Play, Loader2, Download, Info, Eye, Code, Upload, MessageSquare, Send, Bot, User, Users, Database, Layers, Zap, LayoutTemplate, BrainCircuit, Github, BarChart3, Grip, Hash, Sparkles, Command, Box, Server, Terminal, Activity, PieChart, CheckCircle2, FileText, Cpu, Search, PenTool, ArrowRight, BookOpen, Workflow, Share2, Map, LayoutDashboard, Minimize2, Maximize2, X, ShieldAlert, Skull, Briefcase, RefreshCw, Zap as ZapIcon, Network, FileSearch, GitMerge, ListChecks, RotateCw, ChevronRight, FileCode2, ChevronLeft, SplitSquareHorizontal, RefreshCcw, Link2, Layout, TableProperties, ScrollText, Copy, Check, Save } from 'lucide-react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { OllamaConfig, ProcessingLog, CodeSymbol, ProcessedFile, CodeIssue } from '../types';
+import React, { useState, useRef, useEffect } from 'react';
+import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check } from 'lucide-react';
+import { OllamaConfig } from '../types';
 import { LocalVectorStore } from '../services/vectorStore';
-import { IGNORED_DIRS, ALLOWED_EXTENSIONS } from '../utils/constants';
-
 import { useRepoProcessor } from '../hooks/useRepoProcessor';
 import { useChat } from '../hooks/useChat';
-
 import MarkdownRenderer from './MarkdownRenderer';
-import MermaidRenderer from './MermaidRenderer';
-import LiveVisualization from './LiveVisualization';
-import ProjectStructureVisualizer from './ProjectStructureVisualizer';
-import Playground from './Playground';
-import { generateContentHash } from '../services/codeParser';
 
 interface BrowserGeneratorProps {
   config: OllamaConfig;
 }
-
-// ... (Other components like ChatCodeBlock, FileIssuesList, CodeAnalysisViewer, BentoDashboard remain the same)
-// Since I am providing the FULL file content, I need to include them or placeholders.
-// To satisfy the user request correctly, I will include the minimal necessary changes to the main component logic
-// and assume the user understands the imports/other components are visually identical.
-// However, the prompt asks for "FULL CONTENT". I must be careful.
-
-// Re-using the sub-components logic from previous context to ensure file integrity.
-
-const ChatCodeBlock = ({ inline, className, children, ...props }: any) => {
-  const match = /language-(\w+)/.exec(className || '');
-  const lang = match ? match[1] : 'text';
-  const codeText = String(children).replace(/\n$/, '');
-  const [copied, setCopied] = useState(false);
-
-  const handleCopy = () => {
-    navigator.clipboard.writeText(codeText);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  if (inline) {
-    return (
-      <code className="bg-slate-200 text-brand-800 px-1.5 py-0.5 rounded-md font-mono text-xs border border-slate-300 mx-1" {...props}>
-        {children}
-      </code>
-    );
-  }
-
-  return (
-    <div className="my-4 rounded-xl overflow-hidden border border-slate-700/50 shadow-md bg-[#0f172a] group dir-ltr text-left relative">
-      <div className="flex items-center justify-between px-4 py-2 bg-[#1e293b] border-b border-slate-700/50 select-none">
-        <div className="flex items-center gap-3">
-           <div className="flex gap-1.5">
-             <div className="w-2.5 h-2.5 rounded-full bg-red-500/50 group-hover:bg-red-500 transition-colors"></div>
-             <div className="w-2.5 h-2.5 rounded-full bg-yellow-500/50 group-hover:bg-yellow-500 transition-colors"></div>
-             <div className="w-2.5 h-2.5 rounded-full bg-green-500/50 group-hover:bg-green-500 transition-colors"></div>
-           </div>
-           <span className="text-[10px] font-mono text-slate-400 font-bold uppercase tracking-wider">{lang}</span>
-        </div>
-        <button 
-            onClick={handleCopy} 
-            className="flex items-center gap-1.5 text-[10px] text-slate-400 hover:text-white transition-colors bg-white/5 hover:bg-white/10 px-2 py-1 rounded-md"
-        >
-            {copied ? <Check className="w-3 h-3 text-emerald-400" /> : <Copy className="w-3 h-3" />}
-            {copied ? 'Copied' : 'Copy'}
-        </button>
-      </div>
-      <div className="p-4 overflow-x-auto custom-scrollbar">
-        <code className="font-mono text-xs text-blue-100 leading-relaxed block" {...props}>
-          {children}
-        </code>
-      </div>
-    </div>
-  );
-};
-
-const FileIssuesList = ({ issues }: { issues: CodeIssue[] }) => {
-  if (!issues || issues.length === 0) return null;
-  return (
-    <div className="space-y-3 pt-2">
-      {issues.map(issue => (
-        <div key={issue.id} className={`p-4 rounded-xl border-l-4 shadow-sm bg-slate-50 ${
-            issue.severity === 'critical' ? 'border-red-500 bg-red-50/20' :
-            issue.severity === 'high' ? 'border-orange-500 bg-orange-50/20' :
-            issue.severity === 'medium' ? 'border-yellow-500 bg-yellow-50/20' : 'border-blue-500 bg-blue-50/20'
-        }`}>
-          <div className="flex justify-between items-start">
-             <div className="flex items-center gap-2 mb-1">
-                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase ${
-                    issue.category === 'security' ? 'bg-red-100 text-red-600' :
-                    issue.category === 'performance' ? 'bg-purple-100 text-purple-600' :
-                    'bg-slate-200 text-slate-600'
-                }`}>
-                    {issue.category}
-                </span>
-                <span className={`text-[10px] font-bold uppercase ${
-                    issue.severity === 'critical' ? 'text-red-600' : 'text-slate-500'
-                }`}>{issue.severity}</span>
-                <h4 className="font-bold text-slate-800 text-sm ml-2">{issue.title}</h4>
-             </div>
-             <span className="text-xs font-mono text-slate-400 bg-white px-2 rounded">Line {issue.line}</span>
-          </div>
-          <p className="text-xs text-slate-600 mt-1 leading-relaxed pl-1">{issue.description}</p>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-// Simplified CodeAnalysisViewer for brevity as backend logic shifts focus
-const CodeAnalysisViewer = ({ content, knowledgeGraph, onSave, fileMap, onReanalyze, onAskAI }: any) => {
-    // Keeping UI intact but noting that content comes from backend "code" module if selected
-    return (
-        <div className="p-8 bg-white rounded-3xl shadow-sm border border-slate-200 min-h-[500px]">
-             {content ? (
-                 <div className="prose prose-slate max-w-none dir-rtl">
-                     <MarkdownRenderer content={content} knowledgeGraph={knowledgeGraph} onAskAI={onAskAI} />
-                 </div>
-             ) : (
-                 <div className="flex flex-col items-center justify-center h-full text-slate-400">
-                     <Code className="w-16 h-16 mb-4 opacity-20" />
-                     <p>تحلیل کد فعال نیست یا هنوز انجام نشده است.</p>
-                 </div>
-             )}
-        </div>
-    );
-};
 
 const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileMap }: any) => {
     const docKeys = ['root', 'arch', 'api', 'erd', 'sequence'];
@@ -187,12 +69,9 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
     );
 };
 
-// --- MAIN BROWSER GENERATOR ---
-
 const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const [inputType, setInputType] = useState<'local' | 'github'>('local');
   const [repoPath, setRepoPath] = useState(''); // Text input for local path
-  const [scanStats, setScanStats] = useState<{ total: number, valid: number } | null>(null);
   const [githubUrl, setGithubUrl] = useState('');
   
   const [docLevels, setDocLevels] = useState({
@@ -208,7 +87,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const vectorStoreRef = useRef<LocalVectorStore | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const { logs, isProcessing, error, dismissError, progress, generatedDoc, hasContext, processRepository, stats, knowledgeGraph, docParts, businessRules, archViolations, zombieFiles, currentFile, saveManualOverride, fileMap, reanalyzeFile, importSession } = useRepoProcessor();
+  const { logs, isProcessing, error, dismissError, progress, generatedDoc, hasContext, processRepository, stats, knowledgeGraph, docParts, businessRules, archViolations, zombieFiles, currentFile, saveManualOverride, fileMap } = useRepoProcessor();
   
   const { chatMessages, chatInput, setChatInput, isChatLoading, isRetrieving, handleSendMessage } = useChat(
       config, vectorStoreRef, hasContext, knowledgeGraph, docParts
@@ -469,9 +348,6 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                     </div>
                 )}
             </div>
-            
-            {/* Keeping Chat Window Logic (Optional for now) */}
-            {/* ... Chat Window UI code omitted for brevity but should exist ... */}
         </main>
     </div>
   );
