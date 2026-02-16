@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check } from 'lucide-react';
+import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check, Github } from 'lucide-react';
 import { OllamaConfig } from '../types';
 import { LocalVectorStore } from '../services/vectorStore';
 import { useRepoProcessor } from '../hooks/useRepoProcessor';
@@ -279,36 +279,69 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                             <h2 className="text-5xl font-black text-slate-800 mb-6 tracking-tight leading-tight">تحلیل کد با <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-accent-pink">موتور پایتون</span></h2>
                             <p className="text-slate-500 leading-relaxed text-lg font-medium max-w-xl mx-auto">ارتباط مستقیم با Local Backend برای تحلیل عمیق و سریع</p>
                         </div>
+                        
+                        {/* INPUT MODE TOGGLE */}
+                        <div className="bg-white p-1 rounded-xl shadow-sm border border-slate-200 inline-flex gap-1 mb-6">
+                            <button 
+                                onClick={() => setInputType('local')}
+                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${inputType === 'local' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                پوشه محلی (Local)
+                            </button>
+                            <button 
+                                onClick={() => setInputType('github')}
+                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${inputType === 'github' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
+                            >
+                                گیت‌هاب (GitHub)
+                            </button>
+                        </div>
 
                         <div className="w-full grid grid-cols-1 md:grid-cols-1 gap-6 max-w-lg">
-                            {/* LOCAL PATH INPUT CARD */}
-                            <div 
-                                className={`group bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-300 relative overflow-hidden border-brand-500 shadow-xl shadow-brand-500/10 scale-[1.02]`}
-                            >
-                                <div className="relative z-10 text-right">
-                                    <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-colors bg-brand-500 text-white shadow-lg shadow-brand-500/30`}>
-                                        <Folder className="w-7 h-7" />
-                                    </div>
-                                    <h3 className="text-xl font-bold text-slate-800 mb-2">آدرس پروژه (Local Path)</h3>
-                                    <p className="text-sm text-slate-400 font-medium mb-6">مسیر کامل پوشه پروژه را وارد کنید (Backend نیاز دارد)</p>
-                                    
-                                    <div className="relative">
-                                        <input 
-                                            type="text" 
-                                            value={repoPath} 
-                                            onChange={(e) => setRepoPath(e.target.value)} 
-                                            placeholder="e.g. C:\Projects\MyReactApp or /home/user/code" 
-                                            className="w-full py-4 px-4 bg-slate-50 rounded-xl text-left dir-ltr outline-none border-2 border-slate-200 focus:border-brand-400 focus:bg-white transition-all font-mono text-sm placeholder:text-slate-300 text-slate-600"
-                                        />
+                            {inputType === 'local' ? (
+                                <div className={`group bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-300 relative overflow-hidden border-brand-500 shadow-xl shadow-brand-500/10 scale-[1.02]`}>
+                                    <div className="relative z-10 text-right">
+                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-colors bg-brand-500 text-white shadow-lg shadow-brand-500/30`}>
+                                            <Folder className="w-7 h-7" />
+                                        </div>
+                                        <h3 className="text-xl font-bold text-slate-800 mb-2">آدرس پروژه (Local Path)</h3>
+                                        <p className="text-sm text-slate-400 font-medium mb-6">مسیر کامل پوشه پروژه را وارد کنید (Backend نیاز دارد)</p>
+                                        <div className="relative">
+                                            <input 
+                                                type="text" 
+                                                value={repoPath} 
+                                                onChange={(e) => setRepoPath(e.target.value)} 
+                                                placeholder="e.g. C:\Projects\MyReactApp or /home/user/code" 
+                                                className="w-full py-4 px-4 bg-slate-50 rounded-xl text-left dir-ltr outline-none border-2 border-slate-200 focus:border-brand-400 focus:bg-white transition-all font-mono text-sm placeholder:text-slate-300 text-slate-600"
+                                            />
+                                        </div>
                                     </div>
                                 </div>
-                            </div>
+                            ) : (
+                                <div className={`group bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-300 relative overflow-hidden border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md`}>
+                                    <div className="relative z-10 text-right">
+                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-colors bg-slate-900 text-white shadow-lg`}>
+                                            <Github className="w-7 h-7" />
+                                        </div>
+                                        <h3 className="text-xl font-bold text-slate-800 mb-2">لینک ریپازیتوری (GitHub)</h3>
+                                        <p className="text-sm text-slate-400 font-medium mb-6">لینک عمومی پروژه در گیت‌هاب را وارد کنید</p>
+                                        <div className="relative">
+                                            <input 
+                                                type="text" 
+                                                value={githubUrl} 
+                                                onChange={(e) => setGithubUrl(e.target.value)} 
+                                                placeholder="https://github.com/username/repo" 
+                                                className="w-full py-4 px-4 bg-slate-50 rounded-xl text-left dir-ltr outline-none border-2 border-slate-200 focus:border-slate-900 focus:bg-white transition-all font-mono text-sm placeholder:text-slate-300 text-slate-600"
+                                            />
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="flex gap-4 w-full max-w-md mx-auto">
                             <button 
                                 onClick={handleStartProcessing} 
-                                disabled={isProcessing || !repoPath} 
+                                disabled={isProcessing || (inputType === 'local' ? !repoPath : !githubUrl)} 
                                 className="flex-1 py-4 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-500/30 hover:shadow-2xl hover:shadow-brand-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
                             >
                                 <Sparkles className="w-5 h-5" />

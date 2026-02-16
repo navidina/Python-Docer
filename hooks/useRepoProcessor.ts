@@ -55,7 +55,7 @@ export const useRepoProcessor = () => {
       alert("Re-analysis via Python backend is coming soon.");
   }
 
-  const processRepository = async ({ config, inputType, repoPath, docLevels }: UseRepoProcessorProps) => {
+  const processRepository = async ({ config, inputType, repoPath, githubUrl, docLevels }: UseRepoProcessorProps) => {
     setIsProcessing(true);
     setProgress(10);
     setLogs([]);
@@ -63,14 +63,19 @@ export const useRepoProcessor = () => {
     setDocParts({});
     setGeneratedDoc('');
 
-    if (inputType !== 'local' || !repoPath) {
-        setError("In Python-Backend mode, please provide the absolute local path.");
+    // Determine effective path based on input type
+    const effectivePath = inputType === 'local' ? repoPath : githubUrl;
+
+    if (!effectivePath) {
+        setError(inputType === 'local' 
+            ? "Please provide the absolute local path." 
+            : "Please provide a valid GitHub URL.");
         setIsProcessing(false);
         return;
     }
 
     addLog(`Connecting to Python Backend at ${API_URL}...`, 'info');
-    addLog(`Analyzing Path: ${repoPath}`, 'info');
+    addLog(`Target: ${effectivePath} (${inputType})`, 'info');
 
     try {
       setProgress(30);
@@ -78,7 +83,7 @@ export const useRepoProcessor = () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          repo_path: repoPath,
+          repo_path: effectivePath,
           selected_modules: docLevels,
           model_name: config.model
         })

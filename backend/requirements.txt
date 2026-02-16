@@ -6,3 +6,4 @@ tree-sitter
 tree-sitter-languages
 httpx
 tiktoken
+gitpython
