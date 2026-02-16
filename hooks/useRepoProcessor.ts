@@ -1,4 +1,3 @@
-
 import { useState } from 'react';
 import { OllamaConfig, ProcessingLog, ProcessedFile, CodeSymbol, BusinessRule, ArchViolation, ManualOverride } from '../types';
 
@@ -85,7 +84,8 @@ export const useRepoProcessor = () => {
         body: JSON.stringify({
           repo_path: effectivePath,
           selected_modules: docLevels,
-          model_name: config.model
+          model_name: config.model,
+          base_url: config.baseUrl // Pass the configured URL (LM Studio/Ollama)
         })
       });
 

@@ -1,6 +1,5 @@
-
 import React, { useState, useRef, useEffect } from 'react';
-import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check, Github } from 'lucide-react';
+import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check, Github, Component, ServerCog } from 'lucide-react';
 import { OllamaConfig } from '../types';
 import { LocalVectorStore } from '../services/vectorStore';
 import { useRepoProcessor } from '../hooks/useRepoProcessor';
@@ -12,8 +11,14 @@ interface BrowserGeneratorProps {
 }
 
 const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileMap }: any) => {
-    const docKeys = ['root', 'arch', 'api', 'erd', 'sequence'];
-    const generatedCount = docKeys.filter(k => docParts[k]).length;
+    // Added 'components' and 'api_ref' to tracked doc keys
+    const docKeys = ['root', 'arch', 'api', 'erd', 'sequence', 'components', 'api_ref'];
+    
+    // Filter out parts that contain Error messages to accurately reflect progress
+    const generatedCount = docKeys.filter(k => {
+        const content = docParts[k];
+        return content && !content.includes("Error") && !content.includes("Connection Error") && content.length > 50;
+    }).length;
     const progress = Math.round((generatedCount / docKeys.length) * 100);
 
     return (
@@ -50,16 +55,19 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
                     <FileText className="w-5 h-5 text-brand-500" />
                     وضعیت ماژول‌های مستندات
                 </h4>
-                <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
                     {docKeys.map((key) => {
-                        const isDone = !!docParts[key];
+                        const content = docParts[key];
+                        const isDone = content && !content.includes("Error") && !content.includes("Connection Error") && content.length > 50;
+                        const isError = content && (content.includes("Error") || content.includes("Connection Error"));
+                        
                         return (
-                            <div key={key} className={`p-4 rounded-2xl border ${isDone ? 'bg-emerald-50 border-emerald-100' : 'bg-slate-50 border-slate-100 opacity-60'} transition-all hover:scale-105`}>
+                            <div key={key} className={`p-4 rounded-2xl border ${isDone ? 'bg-emerald-50 border-emerald-100' : isError ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100 opacity-60'} transition-all hover:scale-105`}>
                                 <div className="flex items-center gap-2 mb-2">
-                                    {isDone ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
-                                    <span className={`text-xs font-bold uppercase ${isDone ? 'text-emerald-700' : 'text-slate-500'}`}>{key}</span>
+                                    {isDone ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : isError ? <Skull className="w-4 h-4 text-red-500" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
+                                    <span className={`text-xs font-bold uppercase ${isDone ? 'text-emerald-700' : isError ? 'text-red-700' : 'text-slate-500'}`}>{key}</span>
                                 </div>
-                                <div className={`h-1.5 rounded-full ${isDone ? 'bg-emerald-200' : 'bg-slate-200'}`}></div>
+                                <div className={`h-1.5 rounded-full ${isDone ? 'bg-emerald-200' : isError ? 'bg-red-200' : 'bg-slate-200'}`}></div>
                             </div>
                         );
                     })}
@@ -74,8 +82,15 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const [repoPath, setRepoPath] = useState(''); // Text input for local path
   const [githubUrl, setGithubUrl] = useState('');
   
+  // Added new default modules: components and api_ref
   const [docLevels, setDocLevels] = useState({
-    root: true, arch: true, api: true, erd: true, sequence: true
+    root: true, 
+    arch: true, 
+    api: true, 
+    erd: true, 
+    sequence: true,
+    components: true,
+    api_ref: true
   });
 
   const [activeSection, setActiveSection] = useState<string>('dashboard');
@@ -110,12 +125,14 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const handleAskAI = (text: string) => { setChatInput(text); setIsChatOpen(true); };
 
   const downloadMarkdown = () => {
-    const order = ['root', 'arch', 'api', 'erd', 'sequence'];
+    const order = ['root', 'arch', 'api', 'erd', 'sequence', 'components', 'api_ref'];
     let combinedMarkdown = '';
     order.forEach(key => {
         if (docParts[key]) {
             let title = key.toUpperCase();
             if (key === 'root') title = "INTRODUCTION";
+            else if (key === 'components') title = "COMPONENT LIBRARY";
+            else if (key === 'api_ref') title = "API REFERENCE";
             combinedMarkdown += `\n\n# ${title}\n\n${docParts[key]}\n\n---\n`;
         }
     });
@@ -247,6 +264,11 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                 {docParts.erd && <NavItem icon={Database} label="دیتابیس (ERD)" active={activeSection === 'erd'} onClick={() => setActiveSection('erd')} collapsed={!isSidebarOpen} />}
                 {docParts.api && <NavItem icon={ListChecks} label="مستندات API" active={activeSection === 'api'} onClick={() => setActiveSection('api')} collapsed={!isSidebarOpen} />}
                 {docParts.sequence && <NavItem icon={GitMerge} label="نمودار توالی" active={activeSection === 'sequence'} onClick={() => setActiveSection('sequence')} collapsed={!isSidebarOpen} />}
+
+                {isSidebarOpen && <div className="text-[10px] font-bold text-slate-400 mt-6 mb-3 px-2 flex items-center gap-2"><span>کامپوننت و سرویس</span><div className="h-px bg-slate-100 flex-1"></div></div>}
+                
+                {docParts.components && <NavItem icon={Component} label="کتابخانه کامپوننت" active={activeSection === 'components'} onClick={() => setActiveSection('components')} collapsed={!isSidebarOpen} />}
+                {docParts.api_ref && <NavItem icon={ServerCog} label="رفرنس API" active={activeSection === 'api_ref'} onClick={() => setActiveSection('api_ref')} collapsed={!isSidebarOpen} />}
             </div>
             
             <div className="p-5 border-t border-slate-100 bg-white space-y-3">
@@ -263,7 +285,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             <header className="h-20 bg-white/40 backdrop-blur-md flex items-center px-8 justify-between z-10 border-b border-white/50">
                 <div>
                    <h2 className="font-extrabold text-slate-800 text-xl flex items-center gap-2 capitalize">
-                     {activeSection === 'dashboard' ? 'نمای کلی' : activeSection}
+                     {activeSection === 'dashboard' ? 'نمای کلی' : activeSection === 'api_ref' ? 'رفرنس API' : activeSection === 'components' ? 'کتابخانه کامپوننت' : activeSection}
                    </h2>
                    <p className="text-xs text-slate-400 font-medium mt-1">نسخه قدرت گرفته از موتور پایتون</p>
                 </div>

@@ -2,8 +2,8 @@ fastapi
 uvicorn
 pydantic
 networkx
-tree-sitter
-tree-sitter-languages
+tree-sitter==0.20.4
+tree-sitter-languages==1.10.2
 httpx
 tiktoken
 gitpython

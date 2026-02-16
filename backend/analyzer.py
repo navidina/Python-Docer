@@ -1,6 +1,7 @@
 import os
 import networkx as nx
-from tree_sitter_languages import get_language, get_parser
+from tree_sitter import Parser
+from tree_sitter_languages import get_language
 
 # Map file extensions to Tree-sitter languages
 LANGUAGE_MAP = {
@@ -48,11 +49,22 @@ class RepoAnalyzer:
             
         if lang_name not in self.parsers:
             try:
+                # Direct instantiation to bypass potential wrapper version mismatches
+                parser = Parser()
+                language = get_language(lang_name)
+                parser.set_language(language)
+                
                 self.parsers[lang_name] = {
-                    'parser': get_parser(lang_name),
-                    'language': get_language(lang_name)
+                    'parser': parser,
+                    'language': language
                 }
+            except TypeError as te:
+                 if "takes exactly 1 argument (2 given)" in str(te):
+                     print(f"CRITICAL ERROR: tree-sitter version mismatch. Please run: pip install tree-sitter==0.20.4")
+                 print(f"TypeError loading parser for {lang_name}: {te}")
+                 return None, None
             except Exception as e:
+                # Fallback or detailed logging
                 print(f"Could not load parser for {lang_name}: {e}")
                 return None, None
                 
@@ -116,10 +128,11 @@ class RepoAnalyzer:
                     self.graph.add_node(node_id, type='entity', name=text)
                     self.graph.add_edge(rel_path, node_id, relation='defines')
         except Exception as e:
-            print(f"Query error in {rel_path}: {e}")
+            pass
 
     def get_context(self, module_type: str) -> str:
         context = ""
+        
         if module_type == 'root':
             pkg = self.file_map.get('package.json') or self.file_map.get('requirements.txt', '')
             context = f"Project Structure:\n{self.tree_structure}\n\nDependencies:\n{pkg}"
@@ -147,10 +160,48 @@ class RepoAnalyzer:
                 if 'route' in path.lower() or 'controller' in path.lower() or 'api' in path.lower():
                     context += f"\n--- File: {path} ---\n{content}"
 
+        elif module_type == 'components':
+            # BROADER DETECTION: Look for .tsx/.jsx files in various common UI folders
+            # Also accept files starting with Capital letters (React convention)
+            for path, content in self.file_map.items():
+                if path.endswith(('.tsx', '.jsx')):
+                    # Exclude tests and configs
+                    if any(x in path.lower() for x in ['.test.', '.spec.', 'setup', 'config', 'stories']):
+                        continue
+                        
+                    filename = os.path.basename(path)
+                    lower_path = path.lower()
+                    
+                    # Criteria 1: In a UI-related folder
+                    in_ui_folder = any(folder in lower_path for folder in ['components', 'views', 'pages', 'layouts', 'containers', 'ui', 'app'])
+                    
+                    # Criteria 2: PascalCase filename (e.g. UserCard.tsx)
+                    is_pascal_case = filename[0].isupper() and 'index' not in filename.lower()
+                    
+                    if in_ui_folder or is_pascal_case:
+                        # Optimization: Only include if it defines an interface/type (likely props) or exports a function
+                        if 'export' in content:
+                            context += f"\n--- Component: {path} ---\n{content}"
+
+        elif module_type == 'api_ref':
+            # BROADER DETECTION: Look for services, clients, repositories, or direct HTTP calls
+            for path, content in self.file_map.items():
+                # Allow .ts, .js, .py, .go, .java
+                if path.endswith(('.ts', '.js', '.py', '.go', '.java')):
+                    lower_path = path.lower()
+                    # Criteria 1: File name hints at data fetching
+                    is_data_layer = any(k in lower_path for k in ['service', 'api', 'controller', 'route', 'handler', 'client', 'repository', 'mutation', 'query', 'fetcher'])
+                    
+                    # Criteria 2: Content contains HTTP keywords
+                    has_http_keywords = any(x in content for x in ['http', 'fetch', 'axios', 'request', '.get(', '.post(', '.put(', '.delete(', 'graphql', 'query', 'mutation'])
+                    
+                    if is_data_layer and has_http_keywords:
+                        context += f"\n--- Service/API: {path} ---\n{content}"
+
         elif module_type == 'arch':
              context = self.tree_structure + "\n"
-             for conf in ['package.json', 'requirements.txt', 'go.mod', 'Cargo.toml', 'docker-compose.yml']:
+             for conf in ['package.json', 'requirements.txt', 'go.mod', 'Cargo.toml', 'docker-compose.yml', 'vite.config.ts', 'tsconfig.json']:
                  if conf in self.file_map:
                      context += f"\n--- {conf} ---\n{self.file_map[conf]}"
         
-        return context[:32000]
+        return context[:35000]
