@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+pydantic
+networkx
+tree-sitter
+tree-sitter-languages
+httpx
+tiktoken

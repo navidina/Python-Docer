@@ -1,0 +1,5 @@
+{
+  "name": "python RepoDoc",
+  "description": "A dual-mode documentation generator: Run directly in the browser using LM Studio (IP 192.168.167.18) or local Ollama, generating comprehensive docs via React.",
+  "requestFramePermissions": []
+}
