@@ -23,9 +23,11 @@ export const useRepoProcessor = () => {
   const [progress, setProgress] = useState(0);
   const [hasContext, setHasContext] = useState(false);
   
-  // States retained for compatibility with UI
+  // Data from Python
   const [stats, setStats] = useState<any[]>([]);
   const [knowledgeGraph, setKnowledgeGraph] = useState<Record<string, CodeSymbol>>({});
+  
+  // Legacy/Unused states kept for compatibility
   const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]); 
   const [archViolations, setArchViolations] = useState<ArchViolation[]>([]); 
   const [zombieFiles, setZombieFiles] = useState<string[]>([]); 
@@ -51,7 +53,7 @@ export const useRepoProcessor = () => {
   };
   
   const reanalyzeFile = async (config: any, path: string) => {
-      alert("Re-analysis via Python backend is coming soon.");
+      alert("Re-analysis feature requires Python backend update.");
   }
 
   const processRepository = async ({ config, inputType, repoPath, githubUrl, docLevels }: UseRepoProcessorProps) => {
@@ -61,6 +63,8 @@ export const useRepoProcessor = () => {
     setError(null);
     setDocParts({});
     setGeneratedDoc('');
+    setStats([]);
+    setKnowledgeGraph({});
 
     // Determine effective path based on input type
     const effectivePath = inputType === 'local' ? repoPath : githubUrl;
@@ -98,16 +102,19 @@ export const useRepoProcessor = () => {
       const data = await response.json();
       
       // Update UI with results
-      setDocParts(data);
+      setDocParts(data.docParts || {});
+      
+      // RESTORED FEATURES: Stats and Graph
+      if (data.stats) setStats(data.stats);
+      if (data.graph) setKnowledgeGraph(data.graph);
+
       setHasContext(true);
       
       // Generate a simple combined doc for download
       let fullMarkdown = "";
-      if (data.root) fullMarkdown += data.root + "\n\n";
-      if (data.arch) fullMarkdown += "# Architecture\n" + data.arch + "\n\n";
-      if (data.api) fullMarkdown += "# API Documentation\n" + data.api + "\n\n";
-      if (data.erd) fullMarkdown += "# Database Design\n" + data.erd + "\n\n";
-      if (data.sequence) fullMarkdown += "# Sequence Diagrams\n" + data.sequence + "\n\n";
+      Object.keys(data.docParts || {}).forEach(k => {
+          fullMarkdown += `# ${k.toUpperCase()}\n${data.docParts[k]}\n\n`;
+      });
       
       setGeneratedDoc(fullMarkdown);
       setProgress(100);

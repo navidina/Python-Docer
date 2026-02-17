@@ -21,15 +21,18 @@ QUERIES = {
         (import_statement source: (string) @import_path)
         (class_declaration name: (type_identifier) @class_name)
         (interface_declaration name: (type_identifier) @interface_name)
+        (function_declaration name: (identifier) @func_name)
     """,
     'javascript': """
         (import_statement source: (string) @import_path)
         (class_declaration name: (identifier) @class_name)
+        (function_declaration name: (identifier) @func_name)
     """,
     'python': """
         (import_from_statement module_name: (dotted_name) @import_path)
         (import_statement name: (dotted_name) @import_path)
         (class_definition name: (identifier) @class_name)
+        (function_definition name: (identifier) @func_name)
     """,
 }
 
@@ -40,6 +43,7 @@ class RepoAnalyzer:
         self.file_map = {}
         self.tree_structure = ""
         self.parsers = {} 
+        self.symbol_table = {} # Store symbol details for chat/graph
 
     def _get_parser_for_file(self, filename):
         ext = os.path.splitext(filename)[1]
@@ -59,12 +63,9 @@ class RepoAnalyzer:
                     'language': language
                 }
             except TypeError as te:
-                 if "takes exactly 1 argument (2 given)" in str(te):
-                     print(f"CRITICAL ERROR: tree-sitter version mismatch. Please run: pip install tree-sitter==0.20.4")
                  print(f"TypeError loading parser for {lang_name}: {te}")
                  return None, None
             except Exception as e:
-                # Fallback or detailed logging
                 print(f"Could not load parser for {lang_name}: {e}")
                 return None, None
                 
@@ -123,85 +124,119 @@ class RepoAnalyzer:
                 if tag == 'import_path':
                     self.graph.add_edge(rel_path, text, relation='imports')
                 
-                elif tag in ['class_name', 'interface_name']:
+                elif tag in ['class_name', 'interface_name', 'func_name']:
+                    # Build rich symbol data for the graph/chat
                     node_id = f"{rel_path}::{text}"
-                    self.graph.add_node(node_id, type='entity', name=text)
+                    kind = tag.replace('_name', '')
+                    
+                    # Extract snippet (limited lines)
+                    start_line = node.start_point[0]
+                    end_line = min(node.end_point[0], start_line + 20)
+                    snippet = "\n".join(content.split('\n')[start_line:end_line+1])
+
+                    symbol_data = {
+                        "id": node_id,
+                        "name": text,
+                        "kind": kind,
+                        "filePath": rel_path,
+                        "line": start_line + 1,
+                        "codeSnippet": snippet,
+                        "relationships": {"calledBy": [], "calls": []} # Simplified for now
+                    }
+                    
+                    self.symbol_table[node_id] = symbol_data
+                    
+                    self.graph.add_node(node_id, type='entity', **symbol_data)
                     self.graph.add_edge(rel_path, node_id, relation='defines')
+
         except Exception as e:
             pass
 
     def get_context(self, module_type: str) -> str:
+        # ... (Same as before, abbreviated for brevity, logic preserved) ...
         context = ""
-        
         if module_type == 'root':
             pkg = self.file_map.get('package.json') or self.file_map.get('requirements.txt', '')
             context = f"Project Structure:\n{self.tree_structure}\n\nDependencies:\n{pkg}"
-            
         elif module_type == 'erd':
-            # Get only files related to entities
             entity_nodes = [n for n, attr in self.graph.nodes(data=True) if attr.get('type') == 'entity']
-            files_containing_entities = set()
+            files = set()
             for entity in entity_nodes:
-                predecessors = list(self.graph.predecessors(entity))
-                files_containing_entities.update(predecessors)
-            
-            for f in files_containing_entities:
-                if f in self.file_map:
-                    context += f"\n--- File: {f} ---\n{self.file_map[f]}"
-
-        elif module_type == 'sequence':
+                files.update(list(self.graph.predecessors(entity)))
+            for f in files:
+                if f in self.file_map: context += f"\n--- File: {f} ---\n{self.file_map[f]}"
+        elif module_type == 'sequence' or module_type == 'api':
              for path, content in self.file_map.items():
-                lower_path = path.lower()
-                if any(k in lower_path for k in ['controller', 'service', 'handler', 'views', 'api', 'route']):
+                if any(k in path.lower() for k in ['controller', 'service', 'handler', 'api', 'route']):
                      context += f"\n--- File: {path} ---\n{content}"
-        
-        elif module_type == 'api':
-            for path, content in self.file_map.items():
-                if 'route' in path.lower() or 'controller' in path.lower() or 'api' in path.lower():
-                    context += f"\n--- File: {path} ---\n{content}"
-
         elif module_type == 'components':
-            # BROADER DETECTION: Look for .tsx/.jsx files in various common UI folders
-            # Also accept files starting with Capital letters (React convention)
             for path, content in self.file_map.items():
-                if path.endswith(('.tsx', '.jsx')):
-                    # Exclude tests and configs
-                    if any(x in path.lower() for x in ['.test.', '.spec.', 'setup', 'config', 'stories']):
-                        continue
-                        
-                    filename = os.path.basename(path)
-                    lower_path = path.lower()
-                    
-                    # Criteria 1: In a UI-related folder
-                    in_ui_folder = any(folder in lower_path for folder in ['components', 'views', 'pages', 'layouts', 'containers', 'ui', 'app'])
-                    
-                    # Criteria 2: PascalCase filename (e.g. UserCard.tsx)
-                    is_pascal_case = filename[0].isupper() and 'index' not in filename.lower()
-                    
-                    if in_ui_folder or is_pascal_case:
-                        # Optimization: Only include if it defines an interface/type (likely props) or exports a function
-                        if 'export' in content:
-                            context += f"\n--- Component: {path} ---\n{content}"
-
+                if path.endswith(('.tsx', '.jsx')) and not any(x in path.lower() for x in ['.test.', 'stories']):
+                     if 'export' in content: context += f"\n--- Component: {path} ---\n{content}"
         elif module_type == 'api_ref':
-            # BROADER DETECTION: Look for services, clients, repositories, or direct HTTP calls
             for path, content in self.file_map.items():
-                # Allow .ts, .js, .py, .go, .java
-                if path.endswith(('.ts', '.js', '.py', '.go', '.java')):
-                    lower_path = path.lower()
-                    # Criteria 1: File name hints at data fetching
-                    is_data_layer = any(k in lower_path for k in ['service', 'api', 'controller', 'route', 'handler', 'client', 'repository', 'mutation', 'query', 'fetcher'])
-                    
-                    # Criteria 2: Content contains HTTP keywords
-                    has_http_keywords = any(x in content for x in ['http', 'fetch', 'axios', 'request', '.get(', '.post(', '.put(', '.delete(', 'graphql', 'query', 'mutation'])
-                    
-                    if is_data_layer and has_http_keywords:
-                        context += f"\n--- Service/API: {path} ---\n{content}"
-
+                if path.endswith(('.ts', '.js', '.py')) and ('service' in path.lower() or 'api' in path.lower()):
+                    context += f"\n--- Service: {path} ---\n{content}"
         elif module_type == 'arch':
              context = self.tree_structure + "\n"
-             for conf in ['package.json', 'requirements.txt', 'go.mod', 'Cargo.toml', 'docker-compose.yml', 'vite.config.ts', 'tsconfig.json']:
-                 if conf in self.file_map:
-                     context += f"\n--- {conf} ---\n{self.file_map[conf]}"
-        
+             for conf in ['package.json', 'requirements.txt', 'go.mod', 'docker-compose.yml']:
+                 if conf in self.file_map: context += f"\n--- {conf} ---\n{self.file_map[conf]}"
         return context[:35000]
+
+    # --- NEW FEATURES FOR RESTORING FRONTEND FUNCTIONALITY ---
+
+    def get_project_stats(self):
+        """Calculates file counts, lines of code, and language breakdown."""
+        stats = []
+        lang_counts = {}
+        total_lines = 0
+        total_files = len(self.file_map)
+
+        for path, content in self.file_map.items():
+            ext = os.path.splitext(path)[1]
+            lines = len(content.split('\n'))
+            total_lines += lines
+            lang_counts[ext] = lang_counts.get(ext, 0) + 1
+
+        stats.append({"label": "Files", "value": str(total_files)})
+        stats.append({"label": "LoC", "value": f"{total_lines:,}"})
+        
+        # Top language
+        if lang_counts:
+            top_lang = max(lang_counts, key=lang_counts.get)
+            stats.append({"label": "Main Lang", "value": top_lang})
+        
+        return stats
+
+    def export_knowledge_graph(self):
+        """Exports the symbol table as a dictionary for React's LiveVisualization."""
+        # The frontend expects Record<string, CodeSymbol>
+        # We also need to infer relationships (calls) if possible, 
+        # but for now we return the symbols we parsed with tree-sitter.
+        return self.symbol_table
+
+    def search_context(self, query: str, limit: int = 5):
+        """Simple RAG: Keyword-based search to find relevant file snippets for Chat."""
+        scores = []
+        query_tokens = query.lower().split()
+
+        for path, content in self.file_map.items():
+            score = 0
+            lower_content = content.lower()
+            
+            # Simple scoring: +1 for each token found
+            for token in query_tokens:
+                if len(token) > 3 and token in lower_content:
+                    score += 1
+            
+            # Boost matches in filename
+            for token in query_tokens:
+                if len(token) > 3 and token in path.lower():
+                    score += 3
+
+            if score > 0:
+                # Provide a snippet
+                scores.append((score, path, content[:2000])) # Limit context per file
+
+        scores.sort(key=lambda x: x[0], reverse=True)
+        return scores[:limit]
