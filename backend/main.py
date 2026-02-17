@@ -40,21 +40,80 @@ class ReanalyzeRequest(BaseModel):
     file_path: str
 
 def sanitize_mermaid(markdown_text: str) -> str:
-    # ... (Keep existing sanitization logic) ...
-    mermaid_blocks = re.findall(r'```mermaid(.*?)```', markdown_text, re.DOTALL)
-    for original_block in mermaid_blocks:
-        lines = original_block.strip().split('\n')
-        if not lines: continue
-        is_sequence = any('sequencediagram' in line.lower().replace(' ', '') for line in lines[:2])
-        fixed_lines = []
-        for line in lines:
-            if line.strip().startswith('```'): continue
-            if is_sequence:
-                if not ('->' in line or '--' in line) and not any(k in line for k in ['participant','actor','note','loop','end','alt']):
-                    line = f"%% {line}"
-            fixed_lines.append(line)
-        markdown_text = markdown_text.replace(original_block, f"\n{'\n'.join(fixed_lines)}\n")
-    return markdown_text
+    """Normalize Mermaid blocks to reduce syntax errors from LLM output noise."""
+    block_pattern = re.compile(r'```mermaid\s*(.*?)```', re.DOTALL | re.IGNORECASE)
+
+    def normalize_block(raw_block: str) -> str:
+        lines = [line.rstrip() for line in raw_block.strip().splitlines()]
+        if not lines:
+            return ""
+
+        lines = [line for line in lines if not line.strip().startswith('```')]
+        if not lines:
+            return ""
+
+        valid_starts = (
+            'graph', 'flowchart', 'sequencediagram', 'classdiagram', 'statediagram',
+            'erdiagram', 'journey', 'gantt', 'mindmap', 'timeline', 'quadrantchart', 'pie'
+        )
+
+        start_idx = 0
+        for i, line in enumerate(lines):
+            normalized = line.strip().lower().replace(' ', '')
+            if any(normalized.startswith(s) for s in valid_starts):
+                start_idx = i
+                break
+
+        lines = lines[start_idx:]
+        if not lines:
+            return ""
+
+        first = lines[0].strip()
+        first_norm = first.lower().replace(' ', '')
+        is_sequence = first_norm.startswith('sequencediagram')
+        is_graph = first_norm.startswith('graph') or first_norm.startswith('flowchart')
+
+        cleaned = [first]
+        if is_sequence:
+            valid_seq_prefix = (
+                'participant', 'actor', 'note', 'loop', 'end', 'alt', 'opt', 'par',
+                'and', 'critical', 'break', 'rect', 'activate', 'deactivate', 'autonumber', 'title'
+            )
+            for line in lines[1:]:
+                s = line.strip()
+                lower = s.lower()
+                if not s:
+                    continue
+                if lower in {'tb', 'td', 'lr', 'rl', 'bt'}:
+                    cleaned.append(f"%% {line}")
+                    continue
+                if ('->' in s or '--' in s or any(lower.startswith(p) for p in valid_seq_prefix) or s.startswith('%%')):
+                    cleaned.append(line)
+                else:
+                    cleaned.append(f"%% {line}")
+        elif is_graph:
+            valid_graph_prefix = ('subgraph', 'end', 'classdef', 'class', 'style', 'linkstyle', 'click', '%%')
+            for line in lines[1:]:
+                s = line.strip()
+                lower = s.lower()
+                if not s:
+                    continue
+                if ('-->' in s or '---' in s or '-.->' in s or '==>' in s or any(lower.startswith(p) for p in valid_graph_prefix)):
+                    cleaned.append(line)
+                else:
+                    cleaned.append(f"%% {line}")
+        else:
+            cleaned.extend(lines[1:])
+
+        return "\n".join(cleaned)
+
+    def replace_block(match: re.Match) -> str:
+        fixed = normalize_block(match.group(1))
+        if fixed:
+            return f"```mermaid\n{fixed}\n```"
+        return "```mermaid\n%% Empty diagram\n```"
+
+    return block_pattern.sub(replace_block, markdown_text)
 
 @app.get("/")
 def health_check():
