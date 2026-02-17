@@ -6,51 +6,6 @@ import * as THREE from 'three';
 import { CodeSymbol, ArchViolation } from '../types';
 import { ShieldAlert, Skull, Activity, Info, X, Box, Network, Layers, ChevronRight } from 'lucide-react';
 
-// Monkey-patch for missing R3F JSX types in current environment
-// We augment 'react/jsx-runtime' or 'react' depending on setup.
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      group: any;
-      mesh: any;
-      boxGeometry: any;
-      meshStandardMaterial: any;
-      ambientLight: any;
-      pointLight: any;
-      spotLight: any;
-      planeGeometry: any;
-      gridHelper: any;
-      lineSegments: any;
-      edgesGeometry: any;
-      lineBasicMaterial: any;
-      sphereGeometry: any;
-      color: any;
-    }
-  }
-}
-
-// Augment React namespace specifically for older TS/React setups or specific configurations
-declare module 'react' {
-  namespace JSX {
-    interface IntrinsicElements {
-      group: any;
-      mesh: any;
-      boxGeometry: any;
-      meshStandardMaterial: any;
-      ambientLight: any;
-      pointLight: any;
-      spotLight: any;
-      planeGeometry: any;
-      gridHelper: any;
-      lineSegments: any;
-      edgesGeometry: any;
-      lineBasicMaterial: any;
-      sphereGeometry: any;
-      color: any;
-    }
-  }
-}
-
 interface LiveVisualizationProps {
   knowledgeGraph: Record<string, CodeSymbol>;
   archViolations: ArchViolation[];
