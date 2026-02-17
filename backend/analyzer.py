@@ -226,42 +226,103 @@ class RepoAnalyzer:
             lines = content.split('\n')
             filtered = []
             capture = False
+            brace_depth = 0
             for line in lines:
-                if 'export interface' in line or 'export type' in line or 'export enum' in line:
+                stripped = line.strip()
+                if any(token in stripped for token in ['export interface', 'export type', 'export enum', 'declare interface', 'declare type']):
                     capture = True
+                    brace_depth = stripped.count('{') - stripped.count('}')
                     filtered.append(line)
-                elif capture and ('}' in line or ';' in line) and not line.startswith('  '):
+                    continue
+
+                if capture:
                     filtered.append(line)
-                    capture = False
-                elif capture:
-                    filtered.append(line)
+                    brace_depth += stripped.count('{') - stripped.count('}')
+                    if brace_depth <= 0 and (stripped.endswith('}') or stripped.endswith('};') or stripped.endswith(';')):
+                        capture = False
             return "\n".join(filtered) if filtered else content
+
+        def extract_referenced_types(content):
+            candidates = set(re.findall(r'\bI[A-Z][A-Za-z0-9_]+\b', content))
+            candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]*(?:Request|Response|Dto|DTO|Model|Payload|Input|Output)\b', content))
+            return {c for c in candidates if len(c) > 2}
+
+        def resolve_barrel_exports(file_path, content):
+            resolved = []
+            for match in re.finditer(r'export\s+(?:\*|\{[^}]+\})\s+from\s+[\"\']([^\"\']+)[\"\']', content):
+                import_str = match.group(1)
+                resolved_path = self._resolve_import_path(file_path, import_str)
+                if resolved_path and resolved_path in self.file_map:
+                    resolved.append(resolved_path)
+            return resolved
 
         if module_type == 'api_ref':
             primary_files = []
+            included_files = set()
+            referenced_types = set()
+
             for path, content in self.file_map.items():
                 if len(context) >= MAX_CHARS:
                     break
                 if path.endswith(('.ts', '.js')) and ('service' in path.lower() or 'api' in path.lower()) and '.spec.' not in path:
                     primary_files.append(path)
-                    if not add_to_context(f"Service: {path}", content):
+                    referenced_types.update(extract_referenced_types(content))
+                    if add_to_context(f"Service: {path}", content):
+                        included_files.add(path)
+                    else:
                         break
 
             visited_deps = set()
             for primary in primary_files:
                 if len(context) >= MAX_CHARS:
                     break
-                if primary in self.graph:
-                    for dep in self.graph.successors(primary):
-                        dep_path = dep.split('::')[0]
-                        if dep_path not in self.file_map or dep_path in visited_deps or dep_path in primary_files:
-                            continue
-                        if any(x in dep_path.lower() for x in ['dto', 'model', 'interface', 'type', 'entity']):
-                            slim_content = extract_types_only(self.file_map[dep_path])
-                            if add_to_context(f"Dependency: {dep_path}", slim_content):
-                                visited_deps.add(dep_path)
+                if primary not in self.graph:
+                    continue
+
+                for dep in self.graph.successors(primary):
+                    dep_path = dep.split('::')[0]
+                    if dep_path not in self.file_map or dep_path in visited_deps or dep_path in primary_files:
+                        continue
+
+                    dep_lower = dep_path.lower()
+                    if any(x in dep_lower for x in ['dto', 'model', 'interface', 'type', 'entity']) or dep_path.endswith('index.ts'):
+                        dep_content = self.file_map[dep_path]
+                        slim_content = extract_types_only(dep_content)
+                        if add_to_context(f"Dependency: {dep_path}", slim_content):
+                            included_files.add(dep_path)
+                            visited_deps.add(dep_path)
+                            referenced_types.update(extract_referenced_types(dep_content))
+                        else:
+                            break
+
+                        # Barrel-file fallback: expand `export ... from '...'` targets.
+                        for barrel_target in resolve_barrel_exports(dep_path, dep_content):
+                            if barrel_target in included_files:
+                                continue
+                            target_slim = extract_types_only(self.file_map[barrel_target])
+                            if add_to_context(f"Barrel Export: {barrel_target}", target_slim):
+                                included_files.add(barrel_target)
+                                referenced_types.update(extract_referenced_types(self.file_map[barrel_target]))
                             else:
                                 break
+
+            # Name-based fallback search: find type definitions anywhere in repository.
+            for type_name in sorted(referenced_types):
+                if len(context) >= MAX_CHARS:
+                    break
+                pattern = re.compile(rf"\b(?:export\s+)?(?:interface|type|enum|class)\s+{re.escape(type_name)}\b")
+                for path, content in self.file_map.items():
+                    if path in included_files:
+                        continue
+                    path_lower = path.lower()
+                    if not path.endswith(('.ts', '.tsx', '.d.ts', '.js')):
+                        continue
+                    if not any(hint in path_lower for hint in ['dto', 'model', 'interface', 'type', 'entity', 'schema', 'contract']):
+                        continue
+                    if pattern.search(content):
+                        if add_to_context(f"Found via Search ({type_name}): {path}", extract_types_only(content)):
+                            included_files.add(path)
+                        break
 
         elif module_type == 'components':
             for path, content in self.file_map.items():
