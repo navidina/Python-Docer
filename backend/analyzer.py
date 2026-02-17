@@ -404,32 +404,62 @@ class RepoAnalyzer:
             return collected, visited
 
         if module_type == 'api_ref':
+            # API reference needs richer context for DTO/interface expansion.
+            MAX_CHARS = 100000
             primary_files = []
             included_files = set()
             referenced_types = set()
 
             for path, content in self.file_map.items():
-                if len(context) >= MAX_CHARS:
-                    break
                 if path.endswith(('.ts', '.js')) and any(k in path.lower() for k in ['service', 'api', 'controller']) and '.spec.' not in path:
                     primary_files.append(path)
                     referenced_types.update(extract_referenced_types(content))
-                    if add_to_context(f"Entry: {path}", content):
+
+            # Priority 1: add model/type definitions first so they are never dropped
+            # by long service/controller files filling the context budget.
+            for type_name in sorted(referenced_types):
+                if len(context) >= MAX_CHARS:
+                    break
+
+                if type_name in {'Promise', 'Observable', 'string', 'number', 'boolean', 'void', 'any', 'unknown'}:
+                    continue
+
+                primary_hits = find_type_definition_files(type_name, included_files)
+                barrel_hits = find_type_via_barrel_chain(type_name, included_files)
+
+                for path in primary_hits + [b for b in barrel_hits if b not in primary_hits]:
+                    if add_to_context(f"Dependency Model ({type_name}): {path}", self._extract_types_only(self.file_map[path])):
                         included_files.add(path)
                     else:
                         break
 
-            deep_deps, visited = get_deep_dependencies(primary_files, max_depth=3)
+            # Priority 2: then add graph-resolved dependencies (types only).
+            deep_deps, _ = get_deep_dependencies(primary_files, max_depth=3)
             for dep_path, dep_depth, dep_content in deep_deps:
                 if len(context) >= MAX_CHARS:
                     break
+                if dep_path in included_files:
+                    continue
                 if add_to_context(f"Dependency (D{dep_depth}): {dep_path}", dep_content):
                     included_files.add(dep_path)
-                    referenced_types.update(extract_referenced_types(self.file_map.get(dep_path, '')))
                 else:
                     break
 
-            for type_name in sorted(referenced_types):
+            # Priority 3: add entry service/controller code for endpoint semantics.
+            for path in primary_files:
+                if len(context) >= MAX_CHARS:
+                    break
+                if add_to_context(f"Entry: {path}", self.file_map[path]):
+                    included_files.add(path)
+                else:
+                    break
+
+            # Final pass: include any newly referenced types discovered after deps.
+            referenced_after_deps = set(referenced_types)
+            for path in included_files:
+                referenced_after_deps.update(extract_referenced_types(self.file_map.get(path, '')))
+
+            for type_name in sorted(referenced_after_deps):
                 if len(context) >= MAX_CHARS:
                     break
 
