@@ -322,6 +322,45 @@ class RepoAnalyzer:
                     seen.add(path)
             return ordered
 
+        def find_type_via_barrel_chain(type_name, included_files, max_hops=4):
+            """
+            Fallback for hidden DTOs/interfaces behind nested index.ts barrel chains.
+            """
+            declaration_pattern = re.compile(rf"\b(?:export\s+)?(?:interface|type|enum|class)\s+{re.escape(type_name)}\b")
+            barrel_files = [p for p in self.file_map.keys() if p.endswith(('index.ts', 'index.tsx', 'index.js')) and p not in included_files]
+            visited = set()
+            queue = [(b, 0) for b in barrel_files]
+            matches = []
+
+            while queue:
+                current, hop = queue.pop(0)
+                if current in visited or hop > max_hops:
+                    continue
+                visited.add(current)
+
+                content = self.file_map.get(current, '')
+                targets = self.resolve_barrel_exports(current, content)
+                for target in targets:
+                    if target in visited or target not in self.file_map:
+                        continue
+
+                    target_content = self.file_map[target]
+                    if declaration_pattern.search(target_content):
+                        matches.append(target)
+                        continue
+
+                    if target.endswith(('index.ts', 'index.tsx', 'index.js')):
+                        queue.append((target, hop + 1))
+
+            # keep order deterministic and deduplicated
+            ordered = []
+            seen = set()
+            for m in matches:
+                if m not in seen and m not in included_files:
+                    ordered.append(m)
+                    seen.add(m)
+            return ordered
+
         def get_deep_dependencies(start_files, max_depth=3):
             collected = []
             visited = set(start_files)
@@ -394,7 +433,10 @@ class RepoAnalyzer:
                 if len(context) >= MAX_CHARS:
                     break
 
-                for path in find_type_definition_files(type_name, included_files):
+                primary_hits = find_type_definition_files(type_name, included_files)
+                barrel_hits = find_type_via_barrel_chain(type_name, included_files)
+
+                for path in primary_hits + [b for b in barrel_hits if b not in primary_hits]:
                     if add_to_context(f"Found via Search ({type_name}): {path}", self._extract_types_only(self.file_map[path])):
                         included_files.add(path)
                     else:
