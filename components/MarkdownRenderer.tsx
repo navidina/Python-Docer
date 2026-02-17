@@ -139,7 +139,6 @@ const TableOfContents = ({ headers }: { headers: HeaderItem[] }) => {
 
 // --- COLLAPSIBLE SECTION ---
 const CollapsibleSection = ({ children, ...props }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
     
     let title = "جزئیات بیشتر";
     let content = children;
@@ -231,11 +230,12 @@ const ApiJsonBlock = ({ jsonText }: { jsonText: string }) => {
 
 // --- CODE BLOCK RENDERER ---
 const CodeBlock = ({ inline, className, children, ...props }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const codeText = String(children).replace(/\n$/, '');
     const match = /language-(\w+)/.exec(className || '');
-    const lang = match ? match[1] : '';
+    const lang = match ? match[1].toLowerCase() : '';
+    const shouldStartOpen = ['bash', 'sh', 'shell', 'markdown', 'md', 'yml', 'yaml'].includes(lang);
+    const [isOpen, setIsOpen] = useState(shouldStartOpen);
     const isMermaid = lang === 'mermaid';
     
     const isSingleLine = !codeText.includes('\n');

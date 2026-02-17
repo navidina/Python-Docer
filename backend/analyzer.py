@@ -463,6 +463,32 @@ class RepoAnalyzer:
             add_to_context("package.json", self.file_map.get('package.json', ''))
             add_to_context("Project Structure", self.tree_structure)
 
+        elif module_type == 'setup':
+            setup_files = [
+                'README.md',
+                'package.json',
+                'requirements.txt',
+                'pyproject.toml',
+                'Pipfile',
+                'docker-compose.yml',
+                'Dockerfile',
+                '.env.example',
+                '.env.sample',
+                'tsconfig.json',
+                'vite.config.ts'
+            ]
+            for file_name in setup_files:
+                if file_name in self.file_map:
+                    if not add_to_context(file_name, self.file_map[file_name]):
+                        break
+
+            # Include environment/config scripts if present.
+            for path, content in self.file_map.items():
+                lower = path.lower()
+                if any(k in lower for k in ['env', 'config', 'setup', 'install']) and path.endswith(('.md', '.txt', '.json', '.ts', '.js', '.yml', '.yaml')):
+                    if not add_to_context(f"Setup Related: {path}", content):
+                        break
+
         elif module_type == 'sequence':
             for path, content in self.file_map.items():
                 if any(k in path.lower() for k in ['controller', 'service', 'usecase', 'page.tsx']):
