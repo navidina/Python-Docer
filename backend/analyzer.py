@@ -243,6 +243,22 @@ class RepoAnalyzer:
         hotspots.sort(key=lambda x: x['score'], reverse=True)
         return hotspots[:20]
 
+    def resolve_barrel_exports(self, file_path: str, content: str):
+        """
+        Follow barrel exports such as:
+        export * from './request.model'
+        export { A, B } from './dto'
+        """
+        resolved_files = []
+        barrel_pattern = re.compile(r'export\s+(?:\*|\{[^}]+\})\s+from\s+[\"\']([^\"\']+)[\"\']')
+
+        for import_path in barrel_pattern.findall(content):
+            real_path = self._resolve_import_path(file_path, import_path)
+            if real_path and real_path not in resolved_files:
+                resolved_files.append(real_path)
+
+        return resolved_files
+
     def get_context(self, module_type: str) -> str:
         MAX_CHARS = 35000
         context = ""
@@ -306,14 +322,6 @@ class RepoAnalyzer:
                     seen.add(path)
             return ordered
 
-        def resolve_barrel_exports(file_path, content):
-            resolved = []
-            for match in re.finditer(r'export\s+(?:\*|\{[^}]+\})\s+from\s+[\"\']([^\"\']+)[\"\']', content):
-                resolved_path = self._resolve_import_path(file_path, match.group(1))
-                if resolved_path and resolved_path in self.file_map:
-                    resolved.append(resolved_path)
-            return resolved
-
         def get_deep_dependencies(start_files, max_depth=3):
             collected = []
             visited = set(start_files)
@@ -329,18 +337,26 @@ class RepoAnalyzer:
                     if neighbor_path in visited or neighbor_path not in self.file_map:
                         continue
 
+                    dep_content = self.file_map[neighbor_path]
                     lower = neighbor_path.lower()
-                    looks_like_type_file = any(x in lower for x in ['dto', 'model', 'interface', 'type', 'entity', 'request', 'response']) or neighbor_path.endswith('index.ts')
-                    if not looks_like_type_file:
+                    looks_like_type_file = any(x in lower for x in ['dto', 'model', 'interface', 'type', 'entity', 'request', 'response'])
+                    barrel_targets = self.resolve_barrel_exports(neighbor_path, dep_content)
+                    is_barrel_file = neighbor_path.endswith(('index.ts', 'index.tsx', 'index.js')) or len(barrel_targets) > 0
+
+                    # Keep traversing barrel files even if they don't contain direct definitions.
+                    if not looks_like_type_file and not is_barrel_file:
                         continue
 
                     visited.add(neighbor_path)
                     queue.append((neighbor_path, depth + 1))
-                    collected.append((neighbor_path, depth + 1, self._extract_types_only(self.file_map[neighbor_path])))
 
-                    dep_content = self.file_map[neighbor_path]
-                    for barrel_target in resolve_barrel_exports(neighbor_path, dep_content):
-                        if barrel_target in visited:
+                    # Only include content-heavy chunks when likely useful as type containers.
+                    if looks_like_type_file or neighbor_path.endswith(('.d.ts', 'types.ts')):
+                        collected.append((neighbor_path, depth + 1, self._extract_types_only(dep_content)))
+
+                    # Expand barrel re-exports to reach hidden DTO/interface files.
+                    for barrel_target in barrel_targets:
+                        if barrel_target in visited or barrel_target not in self.file_map:
                             continue
                         visited.add(barrel_target)
                         queue.append((barrel_target, depth + 1))
