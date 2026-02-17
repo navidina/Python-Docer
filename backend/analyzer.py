@@ -200,14 +200,50 @@ class RepoAnalyzer:
                     snippet = content[node.start_byte:min(node.end_byte, node.start_byte+300)]
                     
                     # Store symbol in graph
-                    self.graph.add_node(node_id, type='entity', name=text, kind=kind, filePath=rel_path, snippet=snippet)
+                    self.graph.add_node(node_id, type='entity', name=text, kind=kind, filePath=rel_path, snippet=snippet, line=node.start_point[0] + 1)
                     self.graph.add_edge(rel_path, node_id, relation='defines')
 
         except Exception as e:
             print(f"Error parsing {rel_path}: {e}")
 
+    def _extract_types_only(self, content: str) -> str:
+        lines = content.split('\n')
+        filtered = []
+        capture = False
+        brace_depth = 0
+
+        for line in lines:
+            stripped = line.strip()
+            if any(token in stripped for token in ['export interface', 'export type', 'export enum', 'declare interface', 'declare type', 'class ']):
+                capture = True
+                brace_depth = stripped.count('{') - stripped.count('}')
+                filtered.append(line)
+                continue
+
+            if capture:
+                filtered.append(line)
+                brace_depth += stripped.count('{') - stripped.count('}')
+                if brace_depth <= 0 and (stripped.endswith('}') or stripped.endswith('};') or stripped.endswith(';')):
+                    capture = False
+
+        return "\n".join(filtered) if filtered else content
+
+    def calculate_complexity(self, content: str) -> int:
+        score = 0
+        for keyword in ['if', 'else', 'for', 'while', 'switch', 'catch', '&&', '||']:
+            score += content.count(keyword + ' ') + content.count(keyword + '(')
+        return score
+
+    def get_code_health(self):
+        hotspots = []
+        for path, content in self.file_map.items():
+            score = self.calculate_complexity(content)
+            if score > 20:
+                hotspots.append({'path': path, 'score': score})
+        hotspots.sort(key=lambda x: x['score'], reverse=True)
+        return hotspots[:20]
+
     def get_context(self, module_type: str) -> str:
-        # Hard context limit to prevent oversized LLM payloads
         MAX_CHARS = 35000
         context = ""
 
@@ -222,26 +258,6 @@ class RepoAnalyzer:
             context += chunk
             return True
 
-        def extract_types_only(content):
-            lines = content.split('\n')
-            filtered = []
-            capture = False
-            brace_depth = 0
-            for line in lines:
-                stripped = line.strip()
-                if any(token in stripped for token in ['export interface', 'export type', 'export enum', 'declare interface', 'declare type']):
-                    capture = True
-                    brace_depth = stripped.count('{') - stripped.count('}')
-                    filtered.append(line)
-                    continue
-
-                if capture:
-                    filtered.append(line)
-                    brace_depth += stripped.count('{') - stripped.count('}')
-                    if brace_depth <= 0 and (stripped.endswith('}') or stripped.endswith('};') or stripped.endswith(';')):
-                        capture = False
-            return "\n".join(filtered) if filtered else content
-
         def extract_referenced_types(content):
             candidates = set(re.findall(r'\bI[A-Z][A-Za-z0-9_]+\b', content))
             candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]*(?:Request|Response|Dto|DTO|Model|Payload|Input|Output)\b', content))
@@ -250,11 +266,44 @@ class RepoAnalyzer:
         def resolve_barrel_exports(file_path, content):
             resolved = []
             for match in re.finditer(r'export\s+(?:\*|\{[^}]+\})\s+from\s+[\"\']([^\"\']+)[\"\']', content):
-                import_str = match.group(1)
-                resolved_path = self._resolve_import_path(file_path, import_str)
+                resolved_path = self._resolve_import_path(file_path, match.group(1))
                 if resolved_path and resolved_path in self.file_map:
                     resolved.append(resolved_path)
             return resolved
+
+        def get_deep_dependencies(start_files, max_depth=3):
+            collected = []
+            visited = set(start_files)
+            queue = [(f, 0) for f in start_files]
+
+            while queue:
+                current_file, depth = queue.pop(0)
+                if depth >= max_depth or current_file not in self.graph:
+                    continue
+
+                for neighbor in self.graph.successors(current_file):
+                    neighbor_path = neighbor.split('::')[0]
+                    if neighbor_path in visited or neighbor_path not in self.file_map:
+                        continue
+
+                    lower = neighbor_path.lower()
+                    looks_like_type_file = any(x in lower for x in ['dto', 'model', 'interface', 'type', 'entity', 'request', 'response']) or neighbor_path.endswith('index.ts')
+                    if not looks_like_type_file:
+                        continue
+
+                    visited.add(neighbor_path)
+                    queue.append((neighbor_path, depth + 1))
+                    collected.append((neighbor_path, depth + 1, self._extract_types_only(self.file_map[neighbor_path])))
+
+                    dep_content = self.file_map[neighbor_path]
+                    for barrel_target in resolve_barrel_exports(neighbor_path, dep_content):
+                        if barrel_target in visited:
+                            continue
+                        visited.add(barrel_target)
+                        queue.append((barrel_target, depth + 1))
+                        collected.append((barrel_target, depth + 1, self._extract_types_only(self.file_map[barrel_target])))
+
+            return collected, visited
 
         if module_type == 'api_ref':
             primary_files = []
@@ -264,49 +313,24 @@ class RepoAnalyzer:
             for path, content in self.file_map.items():
                 if len(context) >= MAX_CHARS:
                     break
-                if path.endswith(('.ts', '.js')) and ('service' in path.lower() or 'api' in path.lower()) and '.spec.' not in path:
+                if path.endswith(('.ts', '.js')) and any(k in path.lower() for k in ['service', 'api', 'controller']) and '.spec.' not in path:
                     primary_files.append(path)
                     referenced_types.update(extract_referenced_types(content))
-                    if add_to_context(f"Service: {path}", content):
+                    if add_to_context(f"Entry: {path}", content):
                         included_files.add(path)
                     else:
                         break
 
-            visited_deps = set()
-            for primary in primary_files:
+            deep_deps, visited = get_deep_dependencies(primary_files, max_depth=3)
+            for dep_path, dep_depth, dep_content in deep_deps:
                 if len(context) >= MAX_CHARS:
                     break
-                if primary not in self.graph:
-                    continue
+                if add_to_context(f"Dependency (D{dep_depth}): {dep_path}", dep_content):
+                    included_files.add(dep_path)
+                    referenced_types.update(extract_referenced_types(self.file_map.get(dep_path, '')))
+                else:
+                    break
 
-                for dep in self.graph.successors(primary):
-                    dep_path = dep.split('::')[0]
-                    if dep_path not in self.file_map or dep_path in visited_deps or dep_path in primary_files:
-                        continue
-
-                    dep_lower = dep_path.lower()
-                    if any(x in dep_lower for x in ['dto', 'model', 'interface', 'type', 'entity']) or dep_path.endswith('index.ts'):
-                        dep_content = self.file_map[dep_path]
-                        slim_content = extract_types_only(dep_content)
-                        if add_to_context(f"Dependency: {dep_path}", slim_content):
-                            included_files.add(dep_path)
-                            visited_deps.add(dep_path)
-                            referenced_types.update(extract_referenced_types(dep_content))
-                        else:
-                            break
-
-                        # Barrel-file fallback: expand `export ... from '...'` targets.
-                        for barrel_target in resolve_barrel_exports(dep_path, dep_content):
-                            if barrel_target in included_files:
-                                continue
-                            target_slim = extract_types_only(self.file_map[barrel_target])
-                            if add_to_context(f"Barrel Export: {barrel_target}", target_slim):
-                                included_files.add(barrel_target)
-                                referenced_types.update(extract_referenced_types(self.file_map[barrel_target]))
-                            else:
-                                break
-
-            # Name-based fallback search: find type definitions anywhere in repository.
             for type_name in sorted(referenced_types):
                 if len(context) >= MAX_CHARS:
                     break
@@ -314,13 +338,12 @@ class RepoAnalyzer:
                 for path, content in self.file_map.items():
                     if path in included_files:
                         continue
-                    path_lower = path.lower()
                     if not path.endswith(('.ts', '.tsx', '.d.ts', '.js')):
                         continue
-                    if not any(hint in path_lower for hint in ['dto', 'model', 'interface', 'type', 'entity', 'schema', 'contract']):
+                    if not any(hint in path.lower() for hint in ['dto', 'model', 'interface', 'type', 'entity', 'schema', 'contract', 'request', 'response']):
                         continue
                     if pattern.search(content):
-                        if add_to_context(f"Found via Search ({type_name}): {path}", extract_types_only(content)):
+                        if add_to_context(f"Found via Search ({type_name}): {path}", self._extract_types_only(content)):
                             included_files.add(path)
                         break
 
@@ -338,27 +361,24 @@ class RepoAnalyzer:
             entity_nodes = [n for n, attr in self.graph.nodes(data=True) if attr.get('type') == 'entity']
             files = sorted(list(set([n.split('::')[0] for n in entity_nodes])), key=lambda f: len(self.file_map.get(f, '')))
             for entity_file in files:
-                if entity_file in self.file_map:
-                    if not add_to_context(f"Entity File: {entity_file}", self.file_map[entity_file]):
-                        break
+                if entity_file in self.file_map and not add_to_context(f"Entity File: {entity_file}", self.file_map[entity_file]):
+                    break
 
         elif module_type == 'root':
-            pkg = self.file_map.get('package.json', '')
-            add_to_context("package.json", pkg)
+            add_to_context("package.json", self.file_map.get('package.json', ''))
             add_to_context("Project Structure", self.tree_structure)
 
         elif module_type == 'sequence':
             for path, content in self.file_map.items():
-                if any(k in path.lower() for k in ['controller', 'usecase', 'page.tsx']):
+                if any(k in path.lower() for k in ['controller', 'service', 'usecase', 'page.tsx']):
                     if not add_to_context(f"Entry Point: {path}", content):
                         break
 
         elif module_type == 'arch':
             context = self.tree_structure + "\n"
             for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml', 'Dockerfile']:
-                if conf in self.file_map:
-                    if not add_to_context(conf, self.file_map[conf]):
-                        break
+                if conf in self.file_map and not add_to_context(conf, self.file_map[conf]):
+                    break
 
         return context
 
@@ -366,13 +386,17 @@ class RepoAnalyzer:
         stats = []
         lang_counts = {}
         total_lines = 0
+        total_complexity = 0
+
         for path, content in self.file_map.items():
             ext = os.path.splitext(path)[1]
             total_lines += len(content.split('\n'))
+            total_complexity += self.calculate_complexity(content)
             lang_counts[ext] = lang_counts.get(ext, 0) + 1
-        
+
         stats.append({"label": "Files", "value": str(len(self.file_map))})
         stats.append({"label": "LoC", "value": f"{total_lines:,}"})
+        stats.append({"label": "Complexity", "value": str(total_complexity)})
         if lang_counts:
             top_lang = max(lang_counts, key=lang_counts.get)
             stats.append({"label": "Main Lang", "value": top_lang})
@@ -394,6 +418,7 @@ class RepoAnalyzer:
                 'name': attrs.get('name', os.path.basename(node)),
                 'kind': attrs.get('kind', 'file' if attrs.get('type') == 'file' else 'variable'),
                 'filePath': attrs.get('filePath', node),
+                'line': attrs.get('line', 1),
                 'codeSnippet': attrs.get('snippet', ''),
                 'relationships': {
                     'calledBy': called_by, 

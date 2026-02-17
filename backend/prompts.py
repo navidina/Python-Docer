@@ -5,6 +5,7 @@ You are a Senior Technical Writer.
 TASK: Write a professional README.md for this project in Persian (Farsi).
 Start with a high-level executive summary using the package.json and file structure.
 Then list features, tech stack, and installation guide.
+For every function or class name you mention, append source reference as [[Name:filePath:line]].
 """,
 
     "setup": """
@@ -17,6 +18,7 @@ Include Prerequisites, Installation (npm/pip), and Environment Variables table.
 Role: Software Architect.
 TASK: Analyze the file structure. Describe the architectural patterns (MVC, Clean Arch, etc.) in Persian.
 Draw a 'graph TD' Mermaid diagram showing module interactions.
+For every function or class name you mention in prose, append [[Name:filePath:line]].
 """,
 
     "erd": """
@@ -44,6 +46,7 @@ Task: Document the Component Library in Persian.
 CRITICAL INSTRUCTION:
 Look for the `interface` or `type` defining the Props. It might be imported from another file (labeled as --- DEPENDENCY --- in the context).
 You MUST resolve the props and list them in a table.
+For every component name and imported type, append [[Name:filePath:line]].
 
 STRICT FORMAT:
 ## ComponentName
@@ -62,27 +65,39 @@ STRICT FORMAT:
 """,
 
     "api_ref": """
-Role: Senior Backend Developer.
-Task: Generate a comprehensive API Reference.
+Role: Senior Backend Architect.
+Task: Analyze the provided code and extract API definitions into a strict JSON format complying with a simplified OpenAPI 3.0 shape.
+
+CONTEXT:
+You have controllers/services and related dependency files (DTOs/Interfaces/Types).
 
 INSTRUCTIONS:
-1.  **Analyze Services:** Look for methods in `*service.ts` files that make HTTP calls (get, post, put, delete).
-2.  **Resolve Models:** You are provided with 'Dependency' files containing interfaces. USE THEM to fill the tables.
-3.  **No Guessing:** If a type is `unknown` or `any` in the code, verify if it is imported. If you can't find the definition in the provided context, state "Definition not available in context" instead of inventing fields.
+1. Identify all HTTP endpoints (GET, POST, PUT, PATCH, DELETE).
+2. Resolve request/response types fully from dependency files.
+3. If a field type references another interface/type, expand it inline recursively when possible.
+4. If a definition is missing, keep field type as "unknown" and set desc to "Definition not available in context".
+5. Output PURE JSON only (no Markdown, no backticks, no explanations).
 
-STRICT FORMAT per Endpoint:
-### `METHOD /url`
-**Function:** `functionName`
-**Request Body:** (`InterfaceName`)
-| Field | Type | Optional | Description |
-|-------|------|----------|-------------|
-| ...   | ...  | ...      | ...         |
-
-**Response:** (`InterfaceName`)
-| Field | Type | Description |
-|-------|------|-------------|
-| ...   | ...  | ...         |
-
----
+JSON STRUCTURE:
+{
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/users",
+      "summary": "Create a user",
+      "source": "[[functionName:filePath:line]]",
+      "requestBody": {
+        "fields": [
+          {"name": "username", "type": "string", "required": true, "desc": "Unique handle"}
+        ]
+      },
+      "response": {
+        "fields": [
+          {"name": "id", "type": "string", "required": true, "desc": "Generated id"}
+        ]
+      }
+    }
+  ]
+}
 """
 }

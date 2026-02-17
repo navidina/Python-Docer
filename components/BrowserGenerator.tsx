@@ -13,7 +13,7 @@ interface BrowserGeneratorProps {
   config: OllamaConfig;
 }
 
-const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileMap }: any) => {
+const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileMap, codeHealth }: any) => {
     // Added 'setup' to tracked doc keys
     const docKeys = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'api_ref'];
     const completedDocs = docKeys.filter(k => docParts[k] && docParts[k].length > 50).length;
@@ -68,6 +68,9 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
                     <p className="text-xs text-slate-400 font-medium">
                         {archViolations.length > 0 ? 'Architecture violations detected' : 'No architecture violations'}
                     </p>
+                    {codeHealth?.length > 0 && (
+                        <p className="text-[10px] text-amber-600 mt-2 font-bold">Hotspots: {codeHealth.length}</p>
+                    )}
                 </div>
             </div>
 
@@ -107,6 +110,64 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
 };
 
 // Mini Component for Sparkline
+const ApiJsonRenderer = ({ content }: { content: string }) => {
+    try {
+        const parsed = JSON.parse(content);
+        const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+        if (!endpoints.length) return <MarkdownRenderer content={content} />;
+
+        return (
+            <div className="space-y-6" dir="ltr">
+                {endpoints.map((ep: any, i: number) => (
+                    <div key={`${ep.method}-${ep.path}-${i}`} className="border border-slate-200 rounded-2xl p-5 bg-white">
+                        <div className="flex items-center gap-3 mb-4 flex-wrap">
+                            <span className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-900 text-white">{ep.method || 'METHOD'}</span>
+                            <code className="text-sm font-mono text-slate-700">{ep.path || '/'}</code>
+                            {ep.source && <span className="text-[11px] text-brand-600 font-mono">{ep.source}</span>}
+                        </div>
+                        {ep.summary && <p className="text-sm text-slate-600 mb-4">{ep.summary}</p>}
+
+                        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                            <div>
+                                <h4 className="font-bold text-slate-700 mb-2 text-sm">Request Body</h4>
+                                <table className="w-full text-xs border border-slate-200 rounded-xl overflow-hidden">
+                                    <thead className="bg-slate-50 text-slate-600">
+                                        <tr><th className="p-2 text-left">Field</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Req</th><th className="p-2 text-left">Desc</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {(ep.requestBody?.fields || []).map((f: any, fi: number) => (
+                                            <tr key={fi} className="border-t border-slate-100">
+                                                <td className="p-2 font-mono">{f.name}</td><td className="p-2">{f.type}</td><td className="p-2">{String(!!f.required)}</td><td className="p-2">{f.desc || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div>
+                                <h4 className="font-bold text-slate-700 mb-2 text-sm">Response</h4>
+                                <table className="w-full text-xs border border-slate-200 rounded-xl overflow-hidden">
+                                    <thead className="bg-slate-50 text-slate-600">
+                                        <tr><th className="p-2 text-left">Field</th><th className="p-2 text-left">Type</th><th className="p-2 text-left">Req</th><th className="p-2 text-left">Desc</th></tr>
+                                    </thead>
+                                    <tbody>
+                                        {(ep.response?.fields || []).map((f: any, fi: number) => (
+                                            <tr key={fi} className="border-t border-slate-100">
+                                                <td className="p-2 font-mono">{f.name}</td><td className="p-2">{f.type}</td><td className="p-2">{String(!!f.required)}</td><td className="p-2">{f.desc || '-'}</td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        );
+    } catch {
+        return <MarkdownRenderer content={content} />;
+    }
+};
+
 const ActivityGraph = ({ data, color }: any) => (
     <div className="flex items-end gap-1 h-8">
         {data.map((h: number, i: number) => (
@@ -149,6 +210,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
     hasContext,
     stats,
     knowledgeGraph,
+    codeHealth,
     archViolations,
     zombieFiles,
     fileMap,
@@ -414,6 +476,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                         knowledgeGraph={knowledgeGraph} 
                         archViolations={archViolations} 
                         fileMap={fileMap} 
+                        codeHealth={codeHealth} 
                     />
 
                     {/* Quick Access to Main Docs */}
@@ -476,14 +539,16 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
 
                     <div className="flex-1 bg-white rounded-[2.5rem] p-8 lg:p-12 shadow-sm border border-slate-100 min-h-[800px]">
                         {docParts[selectedDocSection] ? (
-                            <MarkdownRenderer 
-                                content={docParts[selectedDocSection]} 
-                                knowledgeGraph={knowledgeGraph} 
-                                isEditable={true}
-                                sectionId={selectedDocSection}
-                                onSave={saveManualOverride}
-                                showTOC={true}
-                            />
+                            selectedDocSection === 'api_ref'
+                                ? <ApiJsonRenderer content={docParts[selectedDocSection]} />
+                                : <MarkdownRenderer 
+                                    content={docParts[selectedDocSection]} 
+                                    knowledgeGraph={knowledgeGraph} 
+                                    isEditable={true}
+                                    sectionId={selectedDocSection}
+                                    onSave={saveManualOverride}
+                                    showTOC={true}
+                                />
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-4">
                                 <Loader2 className="w-12 h-12 animate-spin" />

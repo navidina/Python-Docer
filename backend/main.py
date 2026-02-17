@@ -149,6 +149,7 @@ async def generate_docs(request: GenerateRequest):
         response_data = {
             "stats": analyzer.get_project_stats(),
             "graph": analyzer.export_knowledge_graph(),
+            "codeHealth": analyzer.get_code_health(),
             "docParts": {}
         }
 
@@ -295,7 +296,8 @@ async def reanalyze_file_endpoint(request: ReanalyzeRequest):
         return {
             "status": "success", 
             "graph": active_analyzer.export_knowledge_graph(),
-            "stats": active_analyzer.get_project_stats()
+            "stats": active_analyzer.get_project_stats(),
+            "codeHealth": active_analyzer.get_code_health()
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

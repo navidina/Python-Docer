@@ -327,6 +327,10 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
     return () => document.removeEventListener('selectionchange', handleSelection);
   }, []);
 
+  const processedContent = content.replace(/\[\[([^:\]]+):([^:\]]+):(\d+)\]\]/g, (_m, name, filePath, line) => {
+    return `[${name}](code://${filePath}#L${line})`;
+  });
+
   const handleSave = () => {
     if (onSave && sectionId) {
       onSave(sectionId, editContent);
@@ -429,6 +433,17 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
                 })}
                 </p>
             ),
+            a: ({href, children}) => {
+                if (href && href.startsWith('code://')) {
+                    return (
+                        <a href={href} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100 font-mono text-xs" title={href}>
+                            {children}
+                            <ExternalLink className="w-3 h-3" />
+                        </a>
+                    );
+                }
+                return <a href={href} className="text-brand-600 underline" target="_blank" rel="noreferrer">{children}</a>;
+            },
             code: CodeBlock,
             details: CollapsibleSection,
             summary: ({children}: any) => null, 
@@ -439,7 +454,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
             )
             }}
         >
-            {content}
+            {processedContent}
         </ReactMarkdown>
       </div>
     </div>
