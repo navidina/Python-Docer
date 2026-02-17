@@ -53,7 +53,29 @@ export const useRepoProcessor = () => {
   };
   
   const reanalyzeFile = async (config: any, path: string) => {
-      alert("Re-analysis feature requires Python backend update.");
+      addLog(`Re-analyzing file: ${path}...`, 'info');
+      try {
+          const response = await fetch('http://localhost:8000/reanalyze', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ file_path: path })
+          });
+          
+          if (!response.ok) {
+              const err = await response.text();
+              throw new Error(err || "Failed to re-analyze");
+          }
+          
+          const data = await response.json();
+          // Update graph and stats with new data
+          if (data.graph) setKnowledgeGraph(data.graph);
+          if (data.stats) setStats(data.stats);
+          
+          addLog(`File updated: ${path}`, 'success');
+      } catch (e: any) {
+          console.error(e);
+          addLog(`Re-analysis failed: ${e.message}`, 'error');
+      }
   }
 
   const processRepository = async ({ config, inputType, repoPath, githubUrl, docLevels }: UseRepoProcessorProps) => {

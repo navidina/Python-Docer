@@ -36,6 +36,9 @@ class ChatRequest(BaseModel):
     model_name: str
     base_url: str = "http://localhost:11434"
 
+class ReanalyzeRequest(BaseModel):
+    file_path: str
+
 def sanitize_mermaid(markdown_text: str) -> str:
     # ... (Keep existing sanitization logic, shortened for brevity in update) ...
     mermaid_blocks = re.findall(r'```mermaid(.*?)```', markdown_text, re.DOTALL)
@@ -199,6 +202,40 @@ async def chat_endpoint(request: ChatRequest):
 
     except Exception as e:
          return {"response": f"Internal Error: {str(e)}"}
+
+@app.post("/reanalyze")
+async def reanalyze_file_endpoint(request: ReanalyzeRequest):
+    global active_analyzer
+    if not active_analyzer:
+        raise HTTPException(status_code=400, detail="Repository not analyzed yet.")
+    
+    # Construct full path safely
+    # active_analyzer.repo_path is the root. request.file_path is relative.
+    full_path = os.path.join(active_analyzer.repo_path, request.file_path)
+    
+    if not os.path.exists(full_path):
+        raise HTTPException(status_code=404, detail=f"File not found: {request.file_path}")
+
+    try:
+        with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+            content = f.read()
+            
+        # Update content in file_map
+        active_analyzer.file_map[request.file_path] = content
+        
+        # Re-run dependency parsing for this specific file
+        # Note: _parse_dependencies expects (rel_path, content, filename)
+        filename = os.path.basename(full_path)
+        active_analyzer._parse_dependencies(request.file_path, content, filename)
+        
+        # Return updated graph and stats
+        return {
+            "status": "success", 
+            "graph": active_analyzer.export_knowledge_graph(),
+            "stats": active_analyzer.get_project_stats()
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
