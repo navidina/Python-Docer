@@ -99,7 +99,7 @@ async def generate_docs(request: GenerateRequest):
         is_openai = ':1234' in base_url or '/v1' in request.base_url
         api_url = f"{base_url}/v1/chat/completions" if is_openai else f"{base_url}/api/generate"
 
-        async with httpx.AsyncClient(timeout=300.0) as client:
+        async with httpx.AsyncClient(timeout=600.0) as client:
             for module, is_selected in request.selected_modules.items():
                 if not is_selected or module not in PROMPTS: continue
 

@@ -207,79 +207,99 @@ class RepoAnalyzer:
             print(f"Error parsing {rel_path}: {e}")
 
     def get_context(self, module_type: str) -> str:
+        # Hard context limit to prevent oversized LLM payloads
+        MAX_CHARS = 35000
         context = ""
 
-        # Helper: Recursive Dependency Injection
-        def get_recursive_dependencies(start_files, depth=1):
-            deps_content = ""
-            visited = set(start_files)
-            queue = list(start_files)
-            
-            current_depth = 0
-            while queue and current_depth < depth:
-                next_level = []
-                for current_file in queue:
-                    if current_file in self.graph:
-                        # Find imports (graph successors)
-                        for neighbor in self.graph.successors(current_file):
-                            # Only process files, not internal symbols
-                            if '::' not in neighbor and neighbor not in visited:
-                                if neighbor in self.file_map:
-                                    # Filter: Only include Types/Interfaces/Models/DTOs
-                                    # This drastically reduces context noise while keeping essential data structures
-                                    if any(x in neighbor.lower() for x in ['type', 'interface', 'dto', 'model', 'entity', 'enum', 'config']):
-                                        deps_content += f"\n--- DEPENDENCY: {neighbor} ---\n{self.file_map[neighbor]}\n"
-                                        visited.add(neighbor)
-                                        next_level.append(neighbor)
-                queue = next_level
-                current_depth += 1
-            return deps_content
+        def add_to_context(header, content):
+            nonlocal context
+            if len(context) >= MAX_CHARS:
+                return False
+            chunk = f"\n--- {header} ---\n{content}\n"
+            if len(context) + len(chunk) > MAX_CHARS:
+                context += "\n\n... [Context Truncated Limit Reached] ...\n"
+                return False
+            context += chunk
+            return True
+
+        def extract_types_only(content):
+            lines = content.split('\n')
+            filtered = []
+            capture = False
+            for line in lines:
+                if 'export interface' in line or 'export type' in line or 'export enum' in line:
+                    capture = True
+                    filtered.append(line)
+                elif capture and ('}' in line or ';' in line) and not line.startswith('  '):
+                    filtered.append(line)
+                    capture = False
+                elif capture:
+                    filtered.append(line)
+            return "\n".join(filtered) if filtered else content
 
         if module_type == 'api_ref':
-            # 1. Find Services & Controllers
             primary_files = []
             for path, content in self.file_map.items():
-                if path.endswith(('.ts', '.js')) and ('service' in path.lower() or 'api' in path.lower() or 'controller' in path.lower()):
+                if len(context) >= MAX_CHARS:
+                    break
+                if path.endswith(('.ts', '.js')) and ('service' in path.lower() or 'api' in path.lower()) and '.spec.' not in path:
                     primary_files.append(path)
-                    context += f"\n--- Service/Controller: {path} ---\n{content}"
-            
-            # 2. Add Deep Dependencies (DTOs, Interfaces)
-            context += get_recursive_dependencies(primary_files, depth=2)
+                    if not add_to_context(f"Service: {path}", content):
+                        break
+
+            visited_deps = set()
+            for primary in primary_files:
+                if len(context) >= MAX_CHARS:
+                    break
+                if primary in self.graph:
+                    for dep in self.graph.successors(primary):
+                        dep_path = dep.split('::')[0]
+                        if dep_path not in self.file_map or dep_path in visited_deps or dep_path in primary_files:
+                            continue
+                        if any(x in dep_path.lower() for x in ['dto', 'model', 'interface', 'type', 'entity']):
+                            slim_content = extract_types_only(self.file_map[dep_path])
+                            if add_to_context(f"Dependency: {dep_path}", slim_content):
+                                visited_deps.add(dep_path)
+                            else:
+                                break
 
         elif module_type == 'components':
-            # 1. Find React Components
-            primary_files = []
             for path, content in self.file_map.items():
-                if path.endswith(('.tsx', '.jsx')) and not '.test.' in path:
-                     if 'export' in content: 
-                         primary_files.append(path)
-                         context += f"\n--- Component: {path} ---\n{content}"
-            
-            # 2. Add Props & Types
-            context += get_recursive_dependencies(primary_files, depth=1)
+                if len(context) >= MAX_CHARS:
+                    break
+                if path.endswith('.tsx') and '.test.' not in path:
+                    component_name = path.split('/')[-1].replace('.tsx', '')
+                    if 'export default function' in content or f'const {component_name}' in content:
+                        if not add_to_context(f"Component: {path}", content):
+                            break
 
         elif module_type == 'erd':
-            # Find entities via graph attributes
             entity_nodes = [n for n, attr in self.graph.nodes(data=True) if attr.get('type') == 'entity']
-            files = set([n.split('::')[0] for n in entity_nodes])
-            for f in files:
-                if f in self.file_map: context += f"\n--- File: {f} ---\n{self.file_map[f]}"
+            files = sorted(list(set([n.split('::')[0] for n in entity_nodes])), key=lambda f: len(self.file_map.get(f, '')))
+            for entity_file in files:
+                if entity_file in self.file_map:
+                    if not add_to_context(f"Entity File: {entity_file}", self.file_map[entity_file]):
+                        break
 
         elif module_type == 'root':
-            pkg = self.file_map.get('package.json') or self.file_map.get('requirements.txt', '')
-            context = f"Project Structure:\n{self.tree_structure}\n\nDependencies:\n{pkg}"
-            
-        elif module_type == 'sequence':
-             for path, content in self.file_map.items():
-                if any(k in path.lower() for k in ['controller', 'service', 'use', 'api']):
-                     context += f"\n--- File: {path} ---\n{content}"
-                     
-        elif module_type == 'arch':
-             context = self.tree_structure + "\n"
-             for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml']:
-                 if conf in self.file_map: context += f"\n--- {conf} ---\n{self.file_map[conf]}"
+            pkg = self.file_map.get('package.json', '')
+            add_to_context("package.json", pkg)
+            add_to_context("Project Structure", self.tree_structure)
 
-        return context[:50000] # Safe limit for context window
+        elif module_type == 'sequence':
+            for path, content in self.file_map.items():
+                if any(k in path.lower() for k in ['controller', 'usecase', 'page.tsx']):
+                    if not add_to_context(f"Entry Point: {path}", content):
+                        break
+
+        elif module_type == 'arch':
+            context = self.tree_structure + "\n"
+            for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml', 'Dockerfile']:
+                if conf in self.file_map:
+                    if not add_to_context(conf, self.file_map[conf]):
+                        break
+
+        return context
 
     def get_project_stats(self):
         stats = []

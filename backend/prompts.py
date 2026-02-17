@@ -63,27 +63,25 @@ STRICT FORMAT:
 
     "api_ref": """
 Role: Senior Backend Developer.
-Task: Generate a comprehensive API Reference in Persian.
+Task: Generate a comprehensive API Reference.
 
-CRITICAL INSTRUCTION - DATA MODELS:
-You are provided with Service files AND their dependency files (DTOs/Interfaces).
-When you list a Request Body or Response, you **MUST NOT** just write the interface name (e.g., `IUserRequest`).
-Instead, you **MUST expand** it into a detailed table showing its internal fields found in the dependency files.
+INSTRUCTIONS:
+1.  **Analyze Services:** Look for methods in `*service.ts` files that make HTTP calls (get, post, put, delete).
+2.  **Resolve Models:** You are provided with 'Dependency' files containing interfaces. USE THEM to fill the tables.
+3.  **No Guessing:** If a type is `unknown` or `any` in the code, verify if it is imported. If you can't find the definition in the provided context, state "Definition not available in context" instead of inventing fields.
 
 STRICT FORMAT per Endpoint:
 ### `METHOD /url`
-**عملکرد:** نام تابع (`functionName`)
-**توضیحات:** ...
-**مدل درخواست:** (`IUserRequest`)
-| فیلد | نوع | اختیاری؟ | توضیحات |
-|-------|------|-----------|-------------|
-| username | string | خیر | نام کاربری یکتا |
-| age | number | بله | سن کاربر |
+**Function:** `functionName`
+**Request Body:** (`InterfaceName`)
+| Field | Type | Optional | Description |
+|-------|------|----------|-------------|
+| ...   | ...  | ...      | ...         |
 
-**مدل پاسخ:** (`IUserResponse`)
-| فیلد | نوع | توضیحات |
+**Response:** (`InterfaceName`)
+| Field | Type | Description |
 |-------|------|-------------|
-| id | string | شناسه سیستمی |
+| ...   | ...  | ...         |
 
 ---
 """
