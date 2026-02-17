@@ -6,6 +6,48 @@ import * as THREE from 'three';
 import { CodeSymbol, ArchViolation } from '../types';
 import { ShieldAlert, Skull, Activity, Info, X, Box, Network, Layers, ChevronRight } from 'lucide-react';
 
+declare global {
+  namespace JSX {
+    interface IntrinsicElements {
+      group: any;
+      mesh: any;
+      boxGeometry: any;
+      meshStandardMaterial: any;
+      ambientLight: any;
+      pointLight: any;
+      spotLight: any;
+      planeGeometry: any;
+      gridHelper: any;
+      lineSegments: any;
+      edgesGeometry: any;
+      lineBasicMaterial: any;
+      sphereGeometry: any;
+      color: any;
+    }
+  }
+  // Augment React.JSX for React 18+ compatibility
+  namespace React {
+    namespace JSX {
+      interface IntrinsicElements {
+        group: any;
+        mesh: any;
+        boxGeometry: any;
+        meshStandardMaterial: any;
+        ambientLight: any;
+        pointLight: any;
+        spotLight: any;
+        planeGeometry: any;
+        gridHelper: any;
+        lineSegments: any;
+        edgesGeometry: any;
+        lineBasicMaterial: any;
+        sphereGeometry: any;
+        color: any;
+      }
+    }
+  }
+}
+
 interface LiveVisualizationProps {
   knowledgeGraph: Record<string, CodeSymbol>;
   archViolations: ArchViolation[];

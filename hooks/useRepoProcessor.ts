@@ -1,3 +1,4 @@
+
 import { useState } from 'react';
 import { OllamaConfig, ProcessingLog, ProcessedFile, CodeSymbol, BusinessRule, ArchViolation, ManualOverride } from '../types';
 
@@ -7,7 +8,7 @@ const API_URL = 'http://localhost:8000/generate-docs';
 interface UseRepoProcessorProps {
   config: OllamaConfig;
   inputType: 'local' | 'github';
-  files: FileList | null;
+  files?: FileList | null;
   githubUrl: string;
   docLevels: any;
   repoPath?: string;

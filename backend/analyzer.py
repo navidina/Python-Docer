@@ -153,11 +153,30 @@ class RepoAnalyzer:
             pass
 
     def get_context(self, module_type: str) -> str:
-        # ... (Same as before, abbreviated for brevity, logic preserved) ...
         context = ""
+        
+        # --- Helper to append type definitions for better inference ---
+        def append_type_definitions():
+            type_ctx = "\n\n--- TYPE DEFINITIONS (Interfaces/DTOs) ---\n"
+            found_types = False
+            for path, content in self.file_map.items():
+                # Heuristic: files named 'types', 'interfaces', 'dto', 'model', or ending in .d.ts
+                lower_path = path.lower()
+                if any(k in lower_path for k in ['type', 'interface', 'dto', 'model']) or path.endswith('.d.ts'):
+                    type_ctx += f"\n--- File: {path} ---\n{content}\n"
+                    found_types = True
+            return type_ctx if found_types else ""
+
         if module_type == 'root':
             pkg = self.file_map.get('package.json') or self.file_map.get('requirements.txt', '')
             context = f"Project Structure:\n{self.tree_structure}\n\nDependencies:\n{pkg}"
+            
+        elif module_type == 'setup':
+            context = "Project Structure:\n" + self.tree_structure + "\n"
+            for f in ['package.json', 'requirements.txt', 'README.md', '.env.example', 'docker-compose.yml', 'Dockerfile']:
+                if f in self.file_map:
+                    context += f"\n--- {f} ---\n{self.file_map[f]}"
+
         elif module_type == 'erd':
             entity_nodes = [n for n, attr in self.graph.nodes(data=True) if attr.get('type') == 'entity']
             files = set()
@@ -165,25 +184,39 @@ class RepoAnalyzer:
                 files.update(list(self.graph.predecessors(entity)))
             for f in files:
                 if f in self.file_map: context += f"\n--- File: {f} ---\n{self.file_map[f]}"
-        elif module_type == 'sequence' or module_type == 'api':
+        
+        elif module_type == 'sequence':
+             # Focus on Logic, not just definitions
              for path, content in self.file_map.items():
-                if any(k in path.lower() for k in ['controller', 'service', 'handler', 'api', 'route']):
+                lower_path = path.lower()
+                if any(k in lower_path for k in ['service', 'context', 'store', 'provider', 'usecase', 'logic']):
                      context += f"\n--- File: {path} ---\n{content}"
+        
+        elif module_type == 'api':
+            for path, content in self.file_map.items():
+                if any(k in path.lower() for k in ['controller', 'route', 'api', 'app.py', 'main.py']):
+                    context += f"\n--- File: {path} ---\n{content}"
+
         elif module_type == 'components':
             for path, content in self.file_map.items():
                 if path.endswith(('.tsx', '.jsx')) and not any(x in path.lower() for x in ['.test.', 'stories']):
                      if 'export' in content: context += f"\n--- Component: {path} ---\n{content}"
+            # IMPORTANT: Append types so the LLM knows what 'Props' interface actually contains
+            context += append_type_definitions()
+
         elif module_type == 'api_ref':
             for path, content in self.file_map.items():
                 if path.endswith(('.ts', '.js', '.py')) and ('service' in path.lower() or 'api' in path.lower()):
                     context += f"\n--- Service: {path} ---\n{content}"
+            # IMPORTANT: Append types so the LLM can expand DTOs/Interfaces
+            context += append_type_definitions()
+
         elif module_type == 'arch':
              context = self.tree_structure + "\n"
              for conf in ['package.json', 'requirements.txt', 'go.mod', 'docker-compose.yml']:
                  if conf in self.file_map: context += f"\n--- {conf} ---\n{self.file_map[conf]}"
-        return context[:35000]
-
-    # --- NEW FEATURES FOR RESTORING FRONTEND FUNCTIONALITY ---
+        
+        return context[:40000] # Slightly increased limit for types
 
     def get_project_stats(self):
         """Calculates file counts, lines of code, and language breakdown."""
@@ -209,34 +242,23 @@ class RepoAnalyzer:
         return stats
 
     def export_knowledge_graph(self):
-        """Exports the symbol table as a dictionary for React's LiveVisualization."""
-        # The frontend expects Record<string, CodeSymbol>
-        # We also need to infer relationships (calls) if possible, 
-        # but for now we return the symbols we parsed with tree-sitter.
         return self.symbol_table
 
     def search_context(self, query: str, limit: int = 5):
-        """Simple RAG: Keyword-based search to find relevant file snippets for Chat."""
         scores = []
         query_tokens = query.lower().split()
 
         for path, content in self.file_map.items():
             score = 0
             lower_content = content.lower()
-            
-            # Simple scoring: +1 for each token found
             for token in query_tokens:
                 if len(token) > 3 and token in lower_content:
                     score += 1
-            
-            # Boost matches in filename
             for token in query_tokens:
                 if len(token) > 3 and token in path.lower():
                     score += 3
-
             if score > 0:
-                # Provide a snippet
-                scores.append((score, path, content[:2000])) # Limit context per file
+                scores.append((score, path, content[:2000]))
 
         scores.sort(key=lambda x: x[0], reverse=True)
         return scores[:limit]

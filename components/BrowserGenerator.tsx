@@ -1,409 +1,602 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check, Github, Component, ServerCog } from 'lucide-react';
-import { OllamaConfig } from '../types';
+import { File as FileIcon, Folder, Loader2, Download, Code, Sparkles, LayoutDashboard, Minimize2, Maximize2, Skull, RotateCw, ChevronRight, ChevronLeft, Layers, Database, ListChecks, GitMerge, CheckCircle2, FileText, Check, Github, Component, ServerCog, Terminal, Play, MessageSquare, Network } from 'lucide-react';
+import { OllamaConfig, AppMode } from '../types';
 import { LocalVectorStore } from '../services/vectorStore';
 import { useRepoProcessor } from '../hooks/useRepoProcessor';
 import { useChat } from '../hooks/useChat';
 import MarkdownRenderer from './MarkdownRenderer';
+import LiveVisualization from './LiveVisualization';
+import ProjectStructureVisualizer from './ProjectStructureVisualizer';
+import Playground from './Playground';
 
 interface BrowserGeneratorProps {
   config: OllamaConfig;
 }
 
 const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileMap }: any) => {
-    // Added 'components' and 'api_ref' to tracked doc keys
-    const docKeys = ['root', 'arch', 'api', 'erd', 'sequence', 'components', 'api_ref'];
-    
-    // Filter out parts that contain Error messages to accurately reflect progress
-    const generatedCount = docKeys.filter(k => {
-        const content = docParts[k];
-        return content && !content.includes("Error") && !content.includes("Connection Error") && content.length > 50;
-    }).length;
-    const progress = Math.round((generatedCount / docKeys.length) * 100);
+    // Added 'setup' to tracked doc keys
+    const docKeys = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'api_ref'];
+    const completedDocs = docKeys.filter(k => docParts[k] && docParts[k].length > 50).length;
+    const progress = (completedDocs / docKeys.length) * 100;
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-            <div className="md:col-span-2 bg-gradient-to-br from-brand-600 to-brand-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl shadow-brand-900/20 group">
-                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 group-hover:scale-110 transition-transform duration-1000"></div>
-                <div className="relative z-10">
-                    <h3 className="text-3xl font-black mb-2">داشبورد وضعیت پروژه</h3>
-                    <p className="text-brand-100 mb-8 opacity-90 font-medium">گزارش لحظه‌ای از تحلیل کد توسط موتور پایتون</p>
-                    
-                    <div className="flex items-center gap-4 mb-2">
-                        <span className="text-xs font-bold uppercase tracking-widest opacity-70">پیشرفت مستندات</span>
-                        <span className="text-2xl font-black">{progress}%</span>
+        <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-4 h-[500px] mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+            {/* 1. Main Stats (Large) */}
+            <div className="md:col-span-2 md:row-span-2 bg-gradient-to-br from-brand-600 to-brand-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl group">
+                <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
+                <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
+                
+                <div className="flex justify-between items-start mb-12 relative z-10">
+                    <div>
+                        <h3 className="text-3xl font-black tracking-tight mb-1">Overview</h3>
+                        <p className="text-brand-100 font-medium opacity-80">Project Pulse</p>
                     </div>
-                    <div className="w-full bg-black/20 h-4 rounded-full overflow-hidden backdrop-blur-sm border border-white/10 p-0.5">
-                        <div className="h-full rounded-full bg-gradient-to-r from-white to-brand-100 transition-all duration-1000 ease-out relative shadow-[0_0_20px_rgba(255,255,255,0.5)]" style={{ width: `${progress}%` }}>
-                            <div className="absolute inset-0 bg-white/30 animate-[shimmer_2s_infinite]"></div>
+                    <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20">
+                       <ActivityGraph data={[40, 65, 50, 80, 55, 90, 70]} color="white" />
+                    </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-8 relative z-10">
+                    {stats.map((stat: any, i: number) => (
+                        <div key={i}>
+                            <p className="text-brand-200 text-xs font-bold uppercase tracking-widest mb-1">{stat.label}</p>
+                            <p className="text-4xl font-black">{stat.value}</p>
+                        </div>
+                    ))}
+                    <div>
+                        <p className="text-brand-200 text-xs font-bold uppercase tracking-widest mb-1">Doc Progress</p>
+                        <div className="flex items-baseline gap-2">
+                             <p className="text-4xl font-black">{Math.round(progress)}%</p>
+                             <span className="text-sm opacity-60">complete</span>
                         </div>
                     </div>
                 </div>
             </div>
 
-            <div className="bg-white rounded-[2.5rem] p-8 shadow-soft border border-white flex flex-col justify-center">
-                 <div className="grid grid-cols-2 gap-4">
-                     <div className="p-4 bg-emerald-50 rounded-3xl border border-emerald-100 text-center hover:scale-105 transition-transform col-span-2">
-                         <div className="text-emerald-400 text-[10px] font-bold uppercase mb-1">ماژول‌های تکمیل شده</div>
-                         <div className="text-3xl font-black text-emerald-600">{generatedCount} / {docKeys.length}</div>
-                     </div>
-                 </div>
+            {/* 2. Architecture Health */}
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                <div className="flex items-center gap-3 mb-2">
+                    <div className={`p-2.5 rounded-2xl ${archViolations.length > 0 ? 'bg-red-50 text-red-500' : 'bg-emerald-50 text-emerald-500'}`}>
+                        {archViolations.length > 0 ? <Skull className="w-5 h-5" /> : <CheckCircle2 className="w-5 h-5" />}
+                    </div>
+                    <span className="font-bold text-slate-700">System Health</span>
+                </div>
+                <div>
+                    <div className="text-3xl font-black text-slate-800 mb-1">
+                        {archViolations.length > 0 ? `${archViolations.length} Issues` : 'Clean'}
+                    </div>
+                    <p className="text-xs text-slate-400 font-medium">
+                        {archViolations.length > 0 ? 'Architecture violations detected' : 'No architecture violations'}
+                    </p>
+                </div>
             </div>
 
-            <div className="md:col-span-3 bg-white rounded-[2.5rem] p-8 shadow-soft border border-white">
-                <h4 className="font-bold text-slate-800 mb-6 flex items-center gap-2">
-                    <FileText className="w-5 h-5 text-brand-500" />
-                    وضعیت ماژول‌های مستندات
-                </h4>
-                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4">
-                    {docKeys.map((key) => {
-                        const content = docParts[key];
-                        const isDone = content && !content.includes("Error") && !content.includes("Connection Error") && content.length > 50;
-                        const isError = content && (content.includes("Error") || content.includes("Connection Error"));
-                        
-                        return (
-                            <div key={key} className={`p-4 rounded-2xl border ${isDone ? 'bg-emerald-50 border-emerald-100' : isError ? 'bg-red-50 border-red-100' : 'bg-slate-50 border-slate-100 opacity-60'} transition-all hover:scale-105`}>
-                                <div className="flex items-center gap-2 mb-2">
-                                    {isDone ? <CheckCircle2 className="w-4 h-4 text-emerald-500" /> : isError ? <Skull className="w-4 h-4 text-red-500" /> : <div className="w-4 h-4 rounded-full border-2 border-slate-300"></div>}
-                                    <span className={`text-xs font-bold uppercase ${isDone ? 'text-emerald-700' : isError ? 'text-red-700' : 'text-slate-500'}`}>{key}</span>
-                                </div>
-                                <div className={`h-1.5 rounded-full ${isDone ? 'bg-emerald-200' : isError ? 'bg-red-200' : 'bg-slate-200'}`}></div>
-                            </div>
-                        );
-                    })}
+            {/* 3. Knowledge Graph Stats */}
+            <div className="bg-white rounded-[2.5rem] p-6 shadow-sm border border-slate-100 flex flex-col justify-between hover:shadow-md transition-all">
+                 <div className="flex items-center gap-3 mb-2">
+                    <div className="p-2.5 rounded-2xl bg-blue-50 text-blue-500">
+                        <Network className="w-5 h-5" />
+                    </div>
+                    <span className="font-bold text-slate-700">Code Graph</span>
+                </div>
+                <div>
+                    <div className="text-3xl font-black text-slate-800 mb-1">
+                        {Object.keys(knowledgeGraph).length}
+                    </div>
+                    <p className="text-xs text-slate-400 font-medium">Symbols Indexed</p>
+                </div>
+            </div>
+
+            {/* 4. Generation Status (Wide) */}
+            <div className="md:col-span-2 bg-slate-50 rounded-[2.5rem] p-6 border border-slate-200/60 flex items-center justify-between">
+                <div className="flex gap-3 overflow-x-auto custom-scrollbar pb-2 w-full">
+                    {docKeys.map(key => (
+                        <div key={key} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border shrink-0 transition-all ${
+                            docParts[key] 
+                            ? 'bg-white border-brand-200 text-brand-700 shadow-sm' 
+                            : 'bg-slate-100 border-transparent text-slate-400 opacity-50'
+                        }`}>
+                            {docParts[key] ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                            <span className="uppercase">{key.replace('_', ' ')}</span>
+                        </div>
+                    ))}
                 </div>
             </div>
         </div>
     );
 };
 
+// Mini Component for Sparkline
+const ActivityGraph = ({ data, color }: any) => (
+    <div className="flex items-end gap-1 h-8">
+        {data.map((h: number, i: number) => (
+            <div key={i} className="w-1.5 rounded-full opacity-60" style={{ height: `${h}%`, backgroundColor: color }}></div>
+        ))}
+    </div>
+);
+
 const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const [inputType, setInputType] = useState<'local' | 'github'>('local');
-  const [repoPath, setRepoPath] = useState(''); // Text input for local path
+  const [repoPath, setRepoPath] = useState('');
   const [githubUrl, setGithubUrl] = useState('');
   
-  // Added new default modules: components and api_ref
+  // Updated docLevels to include 'setup'
   const [docLevels, setDocLevels] = useState({
-    root: true, 
-    arch: true, 
-    api: true, 
-    erd: true, 
+    root: true,
+    setup: true,
+    arch: true,
+    erd: true,
     sequence: true,
+    api: true,
     components: true,
-    api_ref: true
+    api_ref: true,
+    smart_audit: false
   });
 
-  const [activeSection, setActiveSection] = useState<string>('dashboard');
-  const [isSidebarOpen, setSidebarOpen] = useState(true);
-  const [isChatOpen, setIsChatOpen] = useState(false);
-  const [isHudOpen, setIsHudOpen] = useState(true);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code'>('dashboard');
+  const [selectedDocSection, setSelectedDocSection] = useState<string>('root');
   
-  const chatContainerRef = useRef<HTMLDivElement>(null);
   const vectorStoreRef = useRef<LocalVectorStore | null>(null);
-  const importInputRef = useRef<HTMLInputElement>(null);
 
-  const { logs, isProcessing, error, dismissError, progress, generatedDoc, hasContext, processRepository, stats, knowledgeGraph, docParts, businessRules, archViolations, zombieFiles, currentFile, saveManualOverride, fileMap } = useRepoProcessor();
-  
+  const {
+    isProcessing,
+    progress,
+    logs,
+    error,
+    dismissError,
+    generatedDoc,
+    docParts,
+    hasContext,
+    stats,
+    knowledgeGraph,
+    archViolations,
+    zombieFiles,
+    fileMap,
+    processRepository,
+    saveManualOverride,
+    reanalyzeFile
+  } = useRepoProcessor();
+
   const { chatMessages, chatInput, setChatInput, isChatLoading, isRetrieving, handleSendMessage } = useChat(
-      config, vectorStoreRef, hasContext, knowledgeGraph, docParts
+      config, 
+      vectorStoreRef, 
+      hasContext,
+      knowledgeGraph,
+      docParts
   );
 
-  useEffect(() => {
-    if (chatContainerRef.current) chatContainerRef.current.scrollTop = chatContainerRef.current.scrollHeight;
-  }, [chatMessages, isChatOpen]);
-
-  useEffect(() => {
-    if (isProcessing) setIsHudOpen(true);
-  }, [isProcessing]);
-
-  const handleStartProcessing = async () => {
-    // Pass repoPath instead of files
-    await processRepository({ config, inputType, files: null, repoPath, githubUrl, docLevels, vectorStoreRef });
-    setActiveSection('dashboard');
-  };
-
-  const handleAskAI = (text: string) => { setChatInput(text); setIsChatOpen(true); };
-
-  const downloadMarkdown = () => {
-    const order = ['root', 'arch', 'api', 'erd', 'sequence', 'components', 'api_ref'];
-    let combinedMarkdown = '';
-    order.forEach(key => {
-        if (docParts[key]) {
-            let title = key.toUpperCase();
-            if (key === 'root') title = "INTRODUCTION";
-            else if (key === 'components') title = "COMPONENT LIBRARY";
-            else if (key === 'api_ref') title = "API REFERENCE";
-            combinedMarkdown += `\n\n# ${title}\n\n${docParts[key]}\n\n---\n`;
-        }
+  const handleStart = () => {
+    processRepository({
+        config,
+        inputType,
+        repoPath,
+        githubUrl,
+        docLevels,
+        vectorStoreRef
     });
-    const blob = new Blob([combinedMarkdown], { type: 'text/markdown' });
+  };
+  
+  const handleExport = () => {
+    let content = generatedDoc;
+    // Fallback if generatedDoc is empty (e.g. partial generation) but we have parts
+    if (!content && Object.keys(docParts).length > 0) {
+         content = Object.keys(docParts).map(key => {
+             return `# ${key.toUpperCase()}\n\n${docParts[key]}`;
+         }).join('\n\n---\n\n');
+    }
+    
+    if (!content) {
+        alert("هیچ مستنداتی برای دانلود وجود ندارد.");
+        return;
+    }
+
+    const blob = new Blob([content], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'DOCUMENTATION.md';
-    a.click();
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `DOCUMENTATION_${new Date().toISOString().split('T')[0]}.md`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(url);
   };
 
-  // Sidebar Nav Item
-  const NavItem = ({ icon: Icon, label, active, onClick, collapsed, alert, isPrimary }: any) => (
-    <button 
-      onClick={onClick}
-      className={`w-full flex items-center gap-3 p-3.5 rounded-2xl transition-all duration-300 group relative my-1.5 border border-transparent ${
-        active 
-          ? 'bg-gradient-to-r from-brand-600 to-brand-500 text-white shadow-lg shadow-brand-500/30' 
-          : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900 hover:border-slate-100'
-      } ${isPrimary ? 'mb-6 py-4' : ''}`}
-      title={collapsed ? label : ''}
-    >
-      <div className={`p-2 rounded-xl transition-colors ${
-          active 
-          ? 'bg-white/20 text-white' 
-          : 'bg-slate-100 text-slate-500 group-hover:bg-white group-hover:text-brand-600 group-hover:shadow-sm'
-      }`}>
-         <Icon className={`w-5 h-5`} />
-      </div>
-      {!collapsed && (
-          <div className="flex-1 flex items-center justify-between">
-            <span className={`font-bold text-sm tracking-wide ${active ? 'text-white' : ''}`}>{label}</span>
-             {alert && <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse shadow-[0_0_8px_rgba(239,68,68,0.6)]"></div>}
-          </div>
-      )}
-    </button>
-  );
+  // --- RENDER HELPERS ---
 
-  // Status HUD
-  const ProcessingHUD = () => (
-    <div className={`fixed bottom-6 left-6 z-[50] transition-all duration-500 cubic-bezier(0.16, 1, 0.3, 1) bg-slate-900 text-white rounded-[2rem] border border-slate-700/50 shadow-2xl overflow-hidden flex flex-col ${isHudOpen ? 'w-[400px]' : 'w-72'} ${error ? 'border-red-500/50 shadow-red-900/20' : 'shadow-black/40'}`}>
-       <div 
-         className={`p-4 flex items-center justify-between cursor-pointer ${isHudOpen ? 'bg-slate-800/50 border-b border-slate-700/50' : 'bg-transparent'}`}
-         onClick={() => setIsHudOpen(!isHudOpen)}
-       >
-          <div className="flex items-center gap-3">
-             {error ? (
-                 <Skull className="w-5 h-5 text-red-500 animate-pulse" />
-             ) : (
-                 <div className="relative">
-                    <Loader2 className="w-5 h-5 text-brand-500 animate-spin" />
-                 </div>
-             )}
-             <div className="flex flex-col text-left dir-ltr">
-                 <span className={`text-xs font-bold font-mono ${error ? 'text-red-400' : 'text-white'}`}>
-                     {error ? 'Process Failed' : `Processing... ${Math.round(progress)}%`}
-                 </span>
-             </div>
-          </div>
-          <button className="text-slate-500 hover:text-white transition-colors">
-              {isHudOpen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-          </button>
-       </div>
-       {isHudOpen && (
-          <div className="p-5 bg-slate-900/95 backdrop-blur text-left dir-ltr">
-             {error ? (
-                <div className="space-y-4">
-                   <div className="text-red-400 text-xs leading-relaxed bg-red-950/30 p-3 rounded-xl border border-red-900/50">
-                     {error}
-                   </div>
-                   <button onClick={dismissError} className="w-full py-2.5 bg-slate-800 hover:bg-slate-700 text-white rounded-xl font-bold text-xs transition-colors border border-slate-700 flex items-center justify-center gap-2">
-                     <RotateCw className="w-3 h-3" /> Dismiss & Continue
-                   </button>
+  const renderSidebar = () => (
+    <div className="w-20 lg:w-64 bg-white/80 backdrop-blur-xl border-l border-white/50 shadow-soft rounded-[2.5rem] flex flex-col py-8 shrink-0 h-[calc(100vh-140px)] sticky top-24 ml-6 transition-all duration-500">
+        
+        {/* Mobile/Tablet Icon Mode vs Desktop Text Mode */}
+        <div className="flex flex-col gap-2 px-3 lg:px-6">
+            {[
+                { id: 'dashboard', icon: LayoutDashboard, label: 'داشبورد' },
+                { id: 'docs', icon: FileText, label: 'مستندات' },
+                { id: 'diagrams', icon: GitMerge, label: 'دیاگرام‌ها' },
+                { id: 'code', icon: Code, label: 'تحلیل کد' },
+                { id: 'chat', icon: MessageSquare, label: 'چت هوشمند' },
+            ].map(item => (
+                <button
+                    key={item.id}
+                    onClick={() => setActiveTab(item.id as any)}
+                    className={`flex items-center gap-3 p-3 lg:px-5 lg:py-4 rounded-2xl transition-all duration-300 group relative ${
+                        activeTab === item.id 
+                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105' 
+                        : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'
+                    }`}
+                >
+                    <item.icon className={`w-6 h-6 ${activeTab === item.id ? 'animate-pulse' : ''}`} />
+                    <span className="hidden lg:block font-bold text-sm tracking-wide">{item.label}</span>
+                    {activeTab === item.id && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white/20 rounded-l-full"></div>}
+                </button>
+            ))}
+        </div>
+
+        <div className="mt-auto px-6 hidden lg:block">
+            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">System Status</p>
+                <div className="flex items-center gap-2">
+                    <div className={`w-2 h-2 rounded-full ${hasContext ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
+                    <span className="text-xs font-bold text-slate-600">{hasContext ? 'Ready' : 'Idle'}</span>
                 </div>
-             ) : (
-                <div className="space-y-4">
-                   <div>
-                       <div className="flex justify-between text-[10px] text-slate-400 mb-1.5 uppercase tracking-wider font-bold">
-                          <span>Current Action</span>
-                          <span>{Math.round(progress)}%</span>
-                       </div>
-                       <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden border border-slate-700/50">
-                          <div className="h-full bg-gradient-to-r from-brand-600 to-cyan-400 transition-all duration-300" style={{ width: `${progress}%` }}></div>
-                       </div>
-                   </div>
-                   <div className="bg-black/40 rounded-xl border border-slate-800 h-32 flex flex-col relative overflow-hidden">
-                       <div className="flex-1 overflow-y-auto p-3 space-y-1.5 custom-scrollbar flex flex-col-reverse">
-                           {logs.slice().reverse().map((log, i) => (
-                             <div key={i} className={`flex gap-2 text-[10px] font-mono ${log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-emerald-400' : 'text-slate-500'}`}>
-                                <span>{'>'}</span> <span className="break-all">{log.message}</span>
-                             </div>
-                           ))}
-                       </div>
-                   </div>
-                </div>
-             )}
-          </div>
-       )}
+                {hasContext && <p className="text-[10px] text-slate-400 mt-1">{Object.keys(knowledgeGraph).length} Symbols</p>}
+            </div>
+        </div>
     </div>
   );
 
-  return (
-    <div className="flex h-[calc(100vh-140px)] bg-slate-100/50 overflow-hidden rounded-[2.5rem] shadow-glass border border-white/60 relative mx-4 mb-4 backdrop-blur-xl">
-        <input type="file" ref={importInputRef} style={{ display: 'none' }} accept=".json" onChange={(e) => {}} />
+  const renderConfiguration = () => (
+    <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-8 duration-700">
+        <div className="text-center mb-10">
+            <h2 className="text-4xl font-black text-slate-800 mb-4 tracking-tighter">آنالیز پروژه جدید</h2>
+            <p className="text-slate-500 text-lg font-medium">مسیر پروژه را وارد کنید تا هوش مصنوعی آن را تحلیل کند</p>
+        </div>
 
-        {/* Sidebar */}
-        <aside className={`${isSidebarOpen ? 'w-80' : 'w-24'} bg-white border-l border-slate-100 transition-all duration-500 ease-[cubic-bezier(0.23,1,0.32,1)] flex flex-col z-20 shadow-2xl shadow-slate-200/50 relative h-full`}>
-            <div className="px-6 pt-8 pb-4">
-                <div className="flex items-center justify-between mb-4">
-                    {isSidebarOpen && (
-                        <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                            <h2 className="font-black text-xl text-slate-800">تحلیل سیستم (Python)</h2>
-                        </div>
-                    )}
-                    <button onClick={() => setSidebarOpen(!isSidebarOpen)} className="p-2.5 bg-slate-50 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-700 transition-all border border-slate-100">
-                        {isSidebarOpen ? <ChevronRight className="w-4 h-4"/> : <ChevronLeft className="w-4 h-4"/>}
-                    </button>
-                </div>
-            </div>
+        {/* Input Card */}
+        <div className="bg-white rounded-[2.5rem] p-8 shadow-soft border border-white relative overflow-hidden group">
+            <div className="absolute top-0 right-0 w-32 h-32 bg-brand-50 rounded-bl-[4rem] transition-transform group-hover:scale-110"></div>
             
-            <div className="flex-1 overflow-y-auto px-5 py-2 custom-scrollbar space-y-1">
-                <NavItem icon={LayoutDashboard} label="داشبورد وضعیت" active={activeSection === 'dashboard'} onClick={() => setActiveSection('dashboard')} collapsed={!isSidebarOpen} isPrimary={true} />
-                {docParts.root && <NavItem icon={FileIcon} label="معرفی (README)" active={activeSection === 'root'} onClick={() => setActiveSection('root')} collapsed={!isSidebarOpen} />}
-                
-                {isSidebarOpen && <div className="text-[10px] font-bold text-slate-400 mt-6 mb-3 px-2 flex items-center gap-2"><span>معماری و داده</span><div className="h-px bg-slate-100 flex-1"></div></div>}
-                
-                {docParts.arch && <NavItem icon={Layers} label="معماری سیستم" active={activeSection === 'arch'} onClick={() => setActiveSection('arch')} collapsed={!isSidebarOpen} />}
-                {docParts.erd && <NavItem icon={Database} label="دیتابیس (ERD)" active={activeSection === 'erd'} onClick={() => setActiveSection('erd')} collapsed={!isSidebarOpen} />}
-                {docParts.api && <NavItem icon={ListChecks} label="مستندات API" active={activeSection === 'api'} onClick={() => setActiveSection('api')} collapsed={!isSidebarOpen} />}
-                {docParts.sequence && <NavItem icon={GitMerge} label="نمودار توالی" active={activeSection === 'sequence'} onClick={() => setActiveSection('sequence')} collapsed={!isSidebarOpen} />}
-
-                {isSidebarOpen && <div className="text-[10px] font-bold text-slate-400 mt-6 mb-3 px-2 flex items-center gap-2"><span>کامپوننت و سرویس</span><div className="h-px bg-slate-100 flex-1"></div></div>}
-                
-                {docParts.components && <NavItem icon={Component} label="کتابخانه کامپوننت" active={activeSection === 'components'} onClick={() => setActiveSection('components')} collapsed={!isSidebarOpen} />}
-                {docParts.api_ref && <NavItem icon={ServerCog} label="رفرنس API" active={activeSection === 'api_ref'} onClick={() => setActiveSection('api_ref')} collapsed={!isSidebarOpen} />}
+            <div className="flex gap-4 mb-6 relative z-10">
+                <button 
+                    onClick={() => setInputType('local')}
+                    className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${inputType === 'local' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                >
+                    <Folder className="w-4 h-4" /> Local Folder
+                </button>
+                <button 
+                    onClick={() => setInputType('github')}
+                    className={`flex-1 py-4 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all ${inputType === 'github' ? 'bg-slate-900 text-white shadow-lg' : 'bg-slate-50 text-slate-500 hover:bg-slate-100'}`}
+                >
+                    <Github className="w-4 h-4" /> GitHub Repo
+                </button>
             </div>
-            
-            <div className="p-5 border-t border-slate-100 bg-white space-y-3">
-               {generatedDoc && (
-                   <button onClick={downloadMarkdown} className="w-full py-3 rounded-xl bg-slate-800 text-white font-bold text-xs hover:bg-slate-700 hover:shadow-lg transition-all flex items-center justify-center gap-2 group active:scale-95">
-                      <Download className="w-4 h-4 group-hover:animate-bounce" /> 
-                      {isSidebarOpen && <span>دانلود Markdown</span>}
-                   </button>
-               )}
-            </div>
-        </aside>
 
-        <main className="flex-1 relative overflow-hidden flex flex-col">
-            <header className="h-20 bg-white/40 backdrop-blur-md flex items-center px-8 justify-between z-10 border-b border-white/50">
-                <div>
-                   <h2 className="font-extrabold text-slate-800 text-xl flex items-center gap-2 capitalize">
-                     {activeSection === 'dashboard' ? 'نمای کلی' : activeSection === 'api_ref' ? 'رفرنس API' : activeSection === 'components' ? 'کتابخانه کامپوننت' : activeSection}
-                   </h2>
-                   <p className="text-xs text-slate-400 font-medium mt-1">نسخه قدرت گرفته از موتور پایتون</p>
-                </div>
-            </header>
-
-            <div className="flex-1 overflow-y-auto p-8 custom-scrollbar relative">
-                {(isProcessing || error) && <ProcessingHUD />}
-                
-                {!generatedDoc && !hasContext && !isProcessing && !error ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center max-w-3xl mx-auto space-y-10 animate-in zoom-in-95 duration-500 pb-20">
-                        {/* LANDING STATE */}
-                        <div>
-                            <h2 className="text-5xl font-black text-slate-800 mb-6 tracking-tight leading-tight">تحلیل کد با <span className="text-transparent bg-clip-text bg-gradient-to-r from-brand-600 to-accent-pink">موتور پایتون</span></h2>
-                            <p className="text-slate-500 leading-relaxed text-lg font-medium max-w-xl mx-auto">ارتباط مستقیم با Local Backend برای تحلیل عمیق و سریع</p>
-                        </div>
-                        
-                        {/* INPUT MODE TOGGLE */}
-                        <div className="bg-white p-1 rounded-xl shadow-sm border border-slate-200 inline-flex gap-1 mb-6">
-                            <button 
-                                onClick={() => setInputType('local')}
-                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${inputType === 'local' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-                            >
-                                پوشه محلی (Local)
-                            </button>
-                            <button 
-                                onClick={() => setInputType('github')}
-                                className={`px-6 py-2 rounded-lg text-sm font-bold transition-all ${inputType === 'github' ? 'bg-slate-900 text-white shadow-md' : 'text-slate-500 hover:bg-slate-50'}`}
-                            >
-                                گیت‌هاب (GitHub)
-                            </button>
-                        </div>
-
-                        <div className="w-full grid grid-cols-1 md:grid-cols-1 gap-6 max-w-lg">
-                            {inputType === 'local' ? (
-                                <div className={`group bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-300 relative overflow-hidden border-brand-500 shadow-xl shadow-brand-500/10 scale-[1.02]`}>
-                                    <div className="relative z-10 text-right">
-                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-colors bg-brand-500 text-white shadow-lg shadow-brand-500/30`}>
-                                            <Folder className="w-7 h-7" />
-                                        </div>
-                                        <h3 className="text-xl font-bold text-slate-800 mb-2">آدرس پروژه (Local Path)</h3>
-                                        <p className="text-sm text-slate-400 font-medium mb-6">مسیر کامل پوشه پروژه را وارد کنید (Backend نیاز دارد)</p>
-                                        <div className="relative">
-                                            <input 
-                                                type="text" 
-                                                value={repoPath} 
-                                                onChange={(e) => setRepoPath(e.target.value)} 
-                                                placeholder="e.g. C:\Projects\MyReactApp or /home/user/code" 
-                                                className="w-full py-4 px-4 bg-slate-50 rounded-xl text-left dir-ltr outline-none border-2 border-slate-200 focus:border-brand-400 focus:bg-white transition-all font-mono text-sm placeholder:text-slate-300 text-slate-600"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            ) : (
-                                <div className={`group bg-white p-8 rounded-[2.5rem] border-2 transition-all duration-300 relative overflow-hidden border-slate-200 hover:border-slate-300 shadow-sm hover:shadow-md`}>
-                                    <div className="relative z-10 text-right">
-                                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center mb-4 transition-colors bg-slate-900 text-white shadow-lg`}>
-                                            <Github className="w-7 h-7" />
-                                        </div>
-                                        <h3 className="text-xl font-bold text-slate-800 mb-2">لینک ریپازیتوری (GitHub)</h3>
-                                        <p className="text-sm text-slate-400 font-medium mb-6">لینک عمومی پروژه در گیت‌هاب را وارد کنید</p>
-                                        <div className="relative">
-                                            <input 
-                                                type="text" 
-                                                value={githubUrl} 
-                                                onChange={(e) => setGithubUrl(e.target.value)} 
-                                                placeholder="https://github.com/username/repo" 
-                                                className="w-full py-4 px-4 bg-slate-50 rounded-xl text-left dir-ltr outline-none border-2 border-slate-200 focus:border-slate-900 focus:bg-white transition-all font-mono text-sm placeholder:text-slate-300 text-slate-600"
-                                            />
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-
-                        <div className="flex gap-4 w-full max-w-md mx-auto">
-                            <button 
-                                onClick={handleStartProcessing} 
-                                disabled={isProcessing || (inputType === 'local' ? !repoPath : !githubUrl)} 
-                                className="flex-1 py-4 bg-gradient-to-r from-brand-600 to-brand-500 text-white rounded-2xl font-black text-lg shadow-xl shadow-brand-500/30 hover:shadow-2xl hover:shadow-brand-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none disabled:shadow-none"
-                            >
-                                <Sparkles className="w-5 h-5" />
-                                ارسال به موتور پایتون
-                            </button>
-                        </div>
+            <div className="relative z-10">
+                {inputType === 'local' ? (
+                    <div className="flex gap-2">
+                        <div className="bg-slate-100 p-4 rounded-2xl text-slate-400"><Terminal className="w-6 h-6" /></div>
+                        <input 
+                            type="text" 
+                            value={repoPath}
+                            onChange={(e) => setRepoPath(e.target.value)}
+                            placeholder="Absolute path to your project (e.g., C:\Projects\MyApp)"
+                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 font-mono text-sm text-slate-700 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all dir-ltr text-left"
+                        />
                     </div>
                 ) : (
-                    // MAIN CONTENT AREA (AFTER PROCESSING)
-                    <div className="max-w-[1400px] mx-auto pb-32">
-                        {activeSection === 'dashboard' ? (
-                            <BentoDashboard 
-                                stats={stats} 
-                                docParts={docParts} 
-                                knowledgeGraph={knowledgeGraph} 
-                                archViolations={archViolations} 
-                                fileMap={fileMap} 
-                            />
-                        ) : (
-                             <div className="bg-white rounded-[2.5rem] p-12 shadow-soft border border-white prose prose-slate max-w-none dir-rtl prose-headings:font-extrabold prose-p:text-slate-600 prose-img:rounded-3xl">
-                                 {docParts[activeSection] ? (
-                                     <MarkdownRenderer 
-                                        content={docParts[activeSection]} 
-                                        knowledgeGraph={knowledgeGraph}
-                                        sectionId={activeSection}
-                                        onSave={saveManualOverride}
-                                        isEditable={true}
-                                        onAskAI={handleAskAI}
-                                        showTOC={true} 
-                                     />
-                                 ) : <div className="flex flex-col items-center justify-center py-20 text-slate-400 gap-4">
-                                     <Loader2 className="w-10 h-10 animate-spin opacity-50"/>
-                                     در حال آماده‌سازی محتوا...
-                                 </div>}
-                             </div>
-                        )}
+                    <div className="flex gap-2">
+                        <div className="bg-slate-100 p-4 rounded-2xl text-slate-400"><Github className="w-6 h-6" /></div>
+                        <input 
+                            type="text" 
+                            value={githubUrl}
+                            onChange={(e) => setGithubUrl(e.target.value)}
+                            placeholder="username/repository"
+                            className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 font-mono text-sm text-slate-700 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all dir-ltr text-left"
+                        />
                     </div>
                 )}
             </div>
-        </main>
+        </div>
+
+        {/* Modules Selection */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            {[
+                { id: 'root', label: 'Readme & Intro', icon: FileText },
+                { id: 'setup', label: 'Setup Guide', icon: Terminal }, 
+                { id: 'arch', label: 'Architecture', icon: Layers },
+                { id: 'erd', label: 'Database ERD', icon: Database },
+                { id: 'sequence', label: 'Flows', icon: GitMerge },
+                { id: 'api', label: 'API Graph', icon: ServerCog },
+                { id: 'components', label: 'Components', icon: Component },
+                { id: 'api_ref', label: 'API Reference', icon: ListChecks },
+            ].map(mod => (
+                <button
+                    key={mod.id}
+                    onClick={() => setDocLevels(prev => ({ ...prev, [mod.id]: !prev[mod.id as keyof typeof docLevels] }))}
+                    className={`p-4 rounded-[2rem] border text-right transition-all duration-300 flex flex-col justify-between h-32 group ${
+                        docLevels[mod.id as keyof typeof docLevels] 
+                        ? 'bg-white border-brand-500 shadow-lg shadow-brand-500/10 ring-4 ring-brand-500/5' 
+                        : 'bg-white border-slate-100 opacity-60 hover:opacity-100 hover:border-slate-300'
+                    }`}
+                >
+                    <div className={`p-2.5 w-fit rounded-xl mb-3 transition-colors ${docLevels[mod.id as keyof typeof docLevels] ? 'bg-brand-500 text-white' : 'bg-slate-100 text-slate-400'}`}>
+                        <mod.icon className="w-5 h-5" />
+                    </div>
+                    <span className={`font-bold text-xs ${docLevels[mod.id as keyof typeof docLevels] ? 'text-slate-800' : 'text-slate-400'}`}>
+                        {mod.label}
+                    </span>
+                </button>
+            ))}
+        </div>
+
+        <button 
+            onClick={handleStart}
+            disabled={isProcessing}
+            className="w-full py-6 bg-slate-900 text-white rounded-[2.5rem] font-bold text-lg shadow-2xl shadow-slate-900/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+        >
+            {isProcessing ? (
+                <>
+                    <Loader2 className="w-6 h-6 animate-spin" />
+                    <span className="font-mono">{progress}% Processing...</span>
+                </>
+            ) : (
+                <>
+                    <Sparkles className="w-6 h-6 text-brand-400" />
+                    Start Analysis Engine
+                </>
+            )}
+        </button>
+
+        {logs.length > 0 && (
+            <div className="bg-black/90 rounded-3xl p-6 font-mono text-[10px] text-green-400 h-48 overflow-y-auto custom-scrollbar shadow-inner border border-white/10 dir-ltr text-left">
+                {logs.map((log, i) => (
+                    <div key={i} className="mb-1 opacity-80">
+                        <span className="text-slate-500 mr-2">[{log.timestamp.split('T')[1].split('.')[0]}]</span>
+                        <span className={log.type === 'error' ? 'text-red-400' : log.type === 'success' ? 'text-brand-400' : ''}>
+                            {log.message}
+                        </span>
+                    </div>
+                ))}
+            </div>
+        )}
+
+        {error && (
+             <div className="bg-red-50 text-red-600 p-4 rounded-2xl flex items-center justify-between animate-in slide-in-from-top-4">
+                 <div className="flex items-center gap-3">
+                     <Skull className="w-5 h-5" />
+                     <span className="font-bold text-sm">{error}</span>
+                 </div>
+                 <button onClick={dismissError}><Check className="w-5 h-5" /></button>
+             </div>
+        )}
+    </div>
+  );
+
+  // --- MAIN RENDER ---
+
+  if (!hasContext) {
+      return (
+          <div className="min-h-full flex items-center justify-center p-6">
+              {renderConfiguration()}
+          </div>
+      );
+  }
+
+  return (
+    <div className="flex h-full gap-8 relative">
+        {renderSidebar()}
+        
+        <div className="flex-1 min-w-0 h-full overflow-y-auto custom-scrollbar pb-20 pt-2 px-2">
+            
+            {activeTab === 'dashboard' && (
+                <div className="animate-in fade-in zoom-in-95 duration-500">
+                    <div className="flex items-center justify-between mb-8">
+                         <div>
+                            <h2 className="text-3xl font-black text-slate-800">داشبورد پروژه</h2>
+                            <p className="text-slate-500 font-medium">نمای کلی وضعیت کد و مستندات</p>
+                         </div>
+                         <button 
+                            onClick={handleStart} 
+                            className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 hover:border-brand-200 transition-all flex items-center gap-2"
+                         >
+                             <RotateCw className="w-4 h-4" /> Re-Scan
+                         </button>
+                    </div>
+
+                    <BentoDashboard 
+                        stats={stats} 
+                        docParts={docParts} 
+                        knowledgeGraph={knowledgeGraph} 
+                        archViolations={archViolations}
+                        fileMap={fileMap} 
+                    />
+
+                    {/* Quick Access to Main Docs */}
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                         <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100">
+                             <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                 <FileText className="w-5 h-5 text-brand-500" /> Readme Preview
+                             </h3>
+                             <div className="h-64 overflow-y-auto custom-scrollbar opacity-80 text-sm">
+                                 <MarkdownRenderer content={docParts['root'] || 'Generating...'} />
+                             </div>
+                         </div>
+                         <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100">
+                             <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
+                                 <Network className="w-5 h-5 text-blue-500" /> Live Graph
+                             </h3>
+                             <div className="h-64 rounded-2xl overflow-hidden relative">
+                                  <LiveVisualization knowledgeGraph={knowledgeGraph} archViolations={archViolations} zombieFiles={zombieFiles} />
+                             </div>
+                         </div>
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'docs' && (
+                <div className="animate-in fade-in slide-in-from-right-8 duration-500 flex items-start gap-8">
+                    {/* Doc Navigation Sidebar */}
+                    <div className="w-64 shrink-0 bg-white rounded-[2rem] p-4 shadow-sm border border-slate-100 sticky top-4 h-[calc(100vh-140px)] flex flex-col gap-2">
+                         <p className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">Sections</p>
+                         {[
+                             {id: 'root', label: 'Overview'},
+                             {id: 'setup', label: 'Setup Guide'},
+                             {id: 'arch', label: 'Architecture'},
+                             {id: 'api_ref', label: 'API Reference'},
+                             {id: 'components', label: 'Components'},
+                             {id: 'erd', label: 'Database'},
+                         ].map(sec => (
+                             <button
+                                key={sec.id}
+                                onClick={() => setSelectedDocSection(sec.id)}
+                                className={`text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${
+                                    selectedDocSection === sec.id 
+                                    ? 'bg-brand-50 text-brand-700 shadow-sm border border-brand-100' 
+                                    : 'text-slate-500 hover:bg-slate-50'
+                                }`}
+                             >
+                                 {sec.label}
+                             </button>
+                         ))}
+                         
+                         <div className="mt-auto pt-4 border-t border-slate-100">
+                             <button 
+                                onClick={handleExport}
+                                className="w-full py-3 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 hover:scale-[1.02] transition-transform"
+                             >
+                                 <Download className="w-4 h-4" /> Export MD
+                             </button>
+                         </div>
+                    </div>
+
+                    <div className="flex-1 bg-white rounded-[2.5rem] p-8 lg:p-12 shadow-sm border border-slate-100 min-h-[800px]">
+                        {docParts[selectedDocSection] ? (
+                            <MarkdownRenderer 
+                                content={docParts[selectedDocSection]} 
+                                knowledgeGraph={knowledgeGraph} 
+                                isEditable={true}
+                                sectionId={selectedDocSection}
+                                onSave={saveManualOverride}
+                                showTOC={true}
+                            />
+                        ) : (
+                            <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-4">
+                                <Loader2 className="w-12 h-12 animate-spin" />
+                                <span className="font-bold">Generating {selectedDocSection}...</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'diagrams' && (
+                <div className="animate-in fade-in zoom-in-95 duration-500 space-y-8">
+                     <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                        <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
+                            <Layers className="w-6 h-6 text-brand-500" /> 3D Architecture
+                        </h2>
+                        <div className="h-[600px] rounded-[2rem] overflow-hidden border border-slate-100">
+                             <LiveVisualization knowledgeGraph={knowledgeGraph} archViolations={archViolations} zombieFiles={zombieFiles} />
+                        </div>
+                     </div>
+
+                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                        {['erd', 'sequence', 'api', 'arch'].map(key => (
+                            docParts[key] && docParts[key].includes('```mermaid') && (
+                                <div key={key} className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                                     <div className="flex justify-between items-center mb-6">
+                                         <h3 className="font-bold text-lg capitalize">{key} Diagram</h3>
+                                         <span className="text-xs bg-slate-100 px-3 py-1 rounded-full text-slate-500 font-mono">Mermaid</span>
+                                     </div>
+                                     <MarkdownRenderer content={docParts[key]} />
+                                </div>
+                            )
+                        ))}
+                     </div>
+                </div>
+            )}
+
+            {activeTab === 'code' && (
+                <div className="animate-in fade-in zoom-in-95 duration-500">
+                    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100 mb-8">
+                         <h2 className="text-2xl font-black text-slate-800 mb-2">Project Structure</h2>
+                         <ProjectStructureVisualizer fileMap={fileMap} />
+                    </div>
+                    
+                    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                         <h2 className="text-2xl font-black text-slate-800 mb-6">Playground</h2>
+                         <Playground />
+                    </div>
+                </div>
+            )}
+
+            {activeTab === 'chat' && (
+                 <div className="h-[calc(100vh-140px)] flex flex-col bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-8">
+                     <div className="bg-slate-50/50 p-6 border-b border-slate-100 flex justify-between items-center backdrop-blur-md">
+                         <div>
+                             <h3 className="font-bold text-lg text-slate-800">Rayan Assistant</h3>
+                             <p className="text-xs text-slate-400">Context-Aware AI Chat</p>
+                         </div>
+                         <div className="flex gap-2">
+                             <span className="text-[10px] bg-brand-50 text-brand-600 px-3 py-1.5 rounded-full font-bold border border-brand-100">
+                                 {config.model}
+                             </span>
+                         </div>
+                     </div>
+
+                     <div className="flex-1 overflow-y-auto p-6 space-y-6 custom-scrollbar bg-[url('https://www.transparenttextures.com/patterns/cubes.png')] bg-fixed">
+                         {chatMessages.map((msg, idx) => (
+                             <div key={idx} className={`flex gap-4 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}>
+                                 <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shrink-0 shadow-lg ${msg.role === 'user' ? 'bg-slate-900 text-white' : 'bg-brand-600 text-white'}`}>
+                                     {msg.role === 'user' ? <Terminal className="w-5 h-5" /> : <Sparkles className="w-5 h-5" />}
+                                 </div>
+                                 <div className={`p-5 rounded-[1.5rem] max-w-[80%] shadow-sm text-sm leading-relaxed ${
+                                     msg.role === 'user' 
+                                     ? 'bg-white text-slate-700 rounded-tr-none border border-slate-100' 
+                                     : 'bg-brand-50 text-brand-900 rounded-tl-none border border-brand-100'
+                                 }`}>
+                                     <MarkdownRenderer content={msg.content} />
+                                 </div>
+                             </div>
+                         ))}
+                         {isChatLoading && (
+                             <div className="flex gap-4">
+                                 <div className="w-10 h-10 rounded-2xl bg-brand-600 text-white flex items-center justify-center shrink-0 shadow-lg">
+                                     <Sparkles className="w-5 h-5" />
+                                 </div>
+                                 <div className="bg-brand-50 p-5 rounded-[1.5rem] rounded-tl-none border border-brand-100 flex items-center gap-2 text-brand-400 font-bold text-xs">
+                                     <Loader2 className="w-4 h-4 animate-spin" />
+                                     Thinking...
+                                 </div>
+                             </div>
+                         )}
+                     </div>
+
+                     <div className="p-6 bg-white border-t border-slate-100">
+                         <div className="relative flex items-center gap-2 max-w-4xl mx-auto">
+                             <input 
+                                type="text" 
+                                value={chatInput}
+                                onChange={(e) => setChatInput(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && handleSendMessage()}
+                                placeholder="Ask about your code (e.g., 'How does auth work?')"
+                                className="w-full bg-slate-50 border-2 border-slate-100 rounded-2xl px-6 py-4 pr-14 focus:ring-4 focus:ring-brand-500/10 focus:border-brand-500 outline-none transition-all font-medium text-slate-700 placeholder:text-slate-400"
+                             />
+                             <button 
+                                onClick={handleSendMessage}
+                                disabled={!chatInput.trim() || isChatLoading}
+                                className="absolute right-2 p-2.5 bg-brand-600 text-white rounded-xl shadow-lg shadow-brand-600/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:shadow-none"
+                             >
+                                 <ChevronLeft className="w-5 h-5" />
+                             </button>
+                         </div>
+                         <p className="text-center text-[10px] text-slate-400 mt-3 font-medium">
+                             Powered by {config.model} • RAG Context Active
+                         </p>
+                     </div>
+                 </div>
+            )}
+            
+        </div>
     </div>
   );
 };
