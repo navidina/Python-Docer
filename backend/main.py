@@ -23,6 +23,7 @@ app.add_middleware(
 # --- GLOBAL STATE ---
 # Store the active analyzer instance to allow /chat to access the analyzed repo
 active_analyzer: Optional[RepoAnalyzer] = None
+active_doc_parts: Dict[str, str] = {}
 
 class GenerateRequest(BaseModel):
     repo_path: str
@@ -35,6 +36,7 @@ class ChatRequest(BaseModel):
     history: List[Dict[str, str]]
     model_name: str
     base_url: str = "http://localhost:11434"
+    doc_parts: Optional[Dict[str, str]] = None
 
 class ReanalyzeRequest(BaseModel):
     file_path: str
@@ -121,7 +123,7 @@ def health_check():
 
 @app.post("/generate-docs")
 async def generate_docs(request: GenerateRequest):
-    global active_analyzer
+    global active_analyzer, active_doc_parts
     results = {}
     work_dir = request.repo_path
     temp_dir = None
@@ -193,6 +195,7 @@ async def generate_docs(request: GenerateRequest):
                 except Exception as e:
                     response_data["docParts"][module] = f"Connection Error: {str(e)}"
 
+        active_doc_parts = response_data.get("docParts", {})
         return response_data
 
     finally:
@@ -203,54 +206,74 @@ async def generate_docs(request: GenerateRequest):
 async def chat_endpoint(request: ChatRequest):
     """
     RAG-enabled Chat Endpoint.
-    Uses the 'active_analyzer' to find relevant code context.
+    Uses analyzed code + generated documentation parts for deeper answers.
     """
-    global active_analyzer
-    
+    global active_analyzer, active_doc_parts
+
     if not active_analyzer:
         raise HTTPException(status_code=400, detail="Repository not analyzed yet. Please run generation first.")
 
-    # 1. Retrieve Context (Simple RAG)
-    relevant_files = active_analyzer.search_context(request.message, limit=3)
-    context_str = ""
+    # 1) Code-context retrieval
+    relevant_files = active_analyzer.search_context(request.message, limit=6)
+    code_context = ""
     for score, path, content in relevant_files:
-        context_str += f"\n--- FILE: {path} ---\n{content}\n"
+        code_context += f"\n--- FILE: {path} (score={score}) ---\n{content}\n"
 
-    if not context_str:
-        context_str = "No specific code files matched the query keywords. Answer generally or ask for clarification."
+    # 2) Documentation-context retrieval
+    docs_source = request.doc_parts if request.doc_parts else active_doc_parts
+    doc_context = ""
+    if docs_source:
+        query_tokens = [t for t in re.split(r"[^a-zA-Z0-9_؀-ۿ]+", request.message.lower()) if len(t) > 2]
+        scored = []
+        for section, text in docs_source.items():
+            if not text:
+                continue
+            score = sum(text.lower().count(tok) for tok in query_tokens)
+            score += 4 if section.lower() in request.message.lower() else 0
+            scored.append((score, section, text))
+        scored.sort(key=lambda x: x[0], reverse=True)
+        for _, section, text in scored[:3]:
+            doc_context += f"\n--- DOC SECTION: {section} ---\n{text[:3500]}\n"
 
-    # 2. Construct Prompt
+    if not code_context:
+        code_context = "No specific code files matched query keywords."
+    if not doc_context:
+        doc_context = "No documentation sections matched query keywords."
+
+    # 3) Construct Prompt
     system_prompt = f"""You are a Senior Developer Assistant named 'Rayan'.
-    Answer the user's question based strictly on the provided CODE CONTEXT.
-    If the answer isn't in the code, say so.
+    Answer the user's question based strictly on provided CODE CONTEXT and DOCUMENTATION CONTEXT.
+    Prioritize project-specific, actionable and deep answers (architecture, APIs, flows, setup steps, data models).
+    If information is missing, say exactly what file/section is missing.
     Output in Persian (Farsi).
-    
+
     CODE CONTEXT:
-    {context_str}
+    {code_context}
+
+    DOCUMENTATION CONTEXT:
+    {doc_context}
     """
 
-    # 3. Call LLM
+    # 4) Call LLM
     base_url = request.base_url.rstrip('/')
     if base_url.endswith('/v1'): base_url = base_url[:-3]
     is_openai = ':1234' in base_url or '/v1' in request.base_url
     api_url = f"{base_url}/v1/chat/completions" if is_openai else f"{base_url}/api/generate"
 
     messages = [{"role": "system", "content": system_prompt}]
-    # Add last few history items for continuity
-    messages.extend([{"role": h["role"], "content": h["content"]} for h in request.history[-4:]])
+    messages.extend([{"role": h["role"], "content": h["content"]} for h in request.history[-6:]])
     messages.append({"role": "user", "content": request.message})
 
     try:
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=120.0) as client:
             payload = {}
             if is_openai:
                 payload = {
                     "model": request.model_name,
                     "messages": messages,
-                    "temperature": 0.3
+                    "temperature": 0.2
                 }
             else:
-                # Ollama format conversion (simplified)
                 full_prompt = f"System: {system_prompt}\n"
                 for m in messages[1:]:
                     full_prompt += f"{m['role']}: {m['content']}\n"
@@ -259,13 +282,13 @@ async def chat_endpoint(request: ChatRequest):
             resp = await client.post(api_url, json=payload)
             if resp.status_code != 200:
                 return {"response": f"Error from LLM: {resp.text}"}
-            
+
             data = resp.json()
             answer = data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else data.get('response', '')
             return {"response": answer}
 
     except Exception as e:
-         return {"response": f"Internal Error: {str(e)}"}
+        return {"response": f"Internal Error: {str(e)}"}
 
 @app.post("/reanalyze")
 async def reanalyze_file_endpoint(request: ReanalyzeRequest):

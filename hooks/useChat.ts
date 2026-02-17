@@ -54,7 +54,8 @@ export const useChat = (
                 message: userText,
                 history: historyForBackend,
                 model_name: config.model,
-                base_url: config.baseUrl
+                base_url: config.baseUrl,
+                doc_parts: docParts
             })
         });
 
