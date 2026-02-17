@@ -20,16 +20,16 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
     const progress = (completedDocs / docKeys.length) * 100;
 
     return (
-        <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-4 h-[500px] mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
+        <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-5 h-[500px] mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* 1. Main Stats (Large) */}
-            <div className="md:col-span-2 md:row-span-2 bg-gradient-to-br from-brand-600 to-brand-800 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl group">
+            <div className="md:col-span-2 md:row-span-2 bg-gradient-to-br from-teal-700 to-cyan-700 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
                 <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
                 
                 <div className="flex justify-between items-start mb-12 relative z-10">
                     <div>
                         <h3 className="text-3xl font-black tracking-tight mb-1">Overview</h3>
-                        <p className="text-brand-100 font-medium opacity-80">Project Pulse</p>
+                        <p className="text-teal-100 font-medium opacity-80">Project Pulse</p>
                     </div>
                     <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20">
                        <ActivityGraph data={[40, 65, 50, 80, 55, 90, 70]} color="white" />
@@ -39,12 +39,12 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
                 <div className="grid grid-cols-2 gap-8 relative z-10">
                     {stats.map((stat: any, i: number) => (
                         <div key={i}>
-                            <p className="text-brand-200 text-xs font-bold uppercase tracking-widest mb-1">{stat.label}</p>
+                            <p className="text-teal-100/80 text-xs font-bold uppercase tracking-widest mb-1">{stat.label}</p>
                             <p className="text-4xl font-black">{stat.value}</p>
                         </div>
                     ))}
                     <div>
-                        <p className="text-brand-200 text-xs font-bold uppercase tracking-widest mb-1">Doc Progress</p>
+                        <p className="text-teal-100/80 text-xs font-bold uppercase tracking-widest mb-1">Doc Progress</p>
                         <div className="flex items-baseline gap-2">
                              <p className="text-4xl font-black">{Math.round(progress)}%</p>
                              <span className="text-sm opacity-60">complete</span>
@@ -96,7 +96,7 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
                     {docKeys.map(key => (
                         <div key={key} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border shrink-0 transition-all ${
                             docParts[key] 
-                            ? 'bg-white border-brand-200 text-brand-700 shadow-sm' 
+                            ? 'bg-white border-brand-200 text-teal-700 shadow-sm' 
                             : 'bg-slate-100 border-transparent text-slate-400 opacity-50'
                         }`}>
                             {docParts[key] ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -169,7 +169,7 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
                         <div className="flex items-center gap-3 mb-4 flex-wrap">
                             <span className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-900 text-white">{ep.method || 'METHOD'}</span>
                             <code className="text-sm font-mono text-slate-700">{ep.path || '/'}</code>
-                            {ep.source && <span className="text-[11px] text-brand-600 font-mono">{ep.source}</span>}
+                            {ep.source && <span className="text-[11px] text-teal-600 font-mono">{ep.source}</span>}
                         </div>
                         {ep.summary && <p className="text-sm text-slate-600 mb-4">{ep.summary}</p>}
 
@@ -327,7 +327,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   // --- RENDER HELPERS ---
 
   const renderSidebar = () => (
-    <div className="w-20 lg:w-64 bg-white/80 backdrop-blur-xl border-l border-white/50 shadow-soft rounded-[2.5rem] flex flex-col py-8 shrink-0 h-[calc(100vh-140px)] sticky top-24 ml-6 transition-all duration-500">
+    <div className="w-20 lg:w-64 bg-white border-l border-slate-200 shadow-sm rounded-[2rem] flex flex-col py-8 shrink-0 h-[calc(100vh-140px)] sticky top-24 ml-6 transition-all duration-500">
         
         {/* Mobile/Tablet Icon Mode vs Desktop Text Mode */}
         <div className="flex flex-col gap-2 px-3 lg:px-6">
@@ -343,8 +343,8 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                         onClick={() => setActiveTab(item.id as any)}
                         className={`w-full flex items-center gap-3 p-3 lg:px-5 lg:py-4 rounded-2xl transition-all duration-300 group relative ${
                             activeTab === item.id 
-                            ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105' 
-                            : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'
+                            ? 'bg-teal-600 text-white shadow-lg shadow-teal-500/30 scale-105' 
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-teal-600'
                         }`}
                     >
                         <item.icon className={`w-6 h-6 ${activeTab === item.id ? 'animate-pulse' : ''}`} />
@@ -360,7 +360,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                     onClick={() => { setActiveTab('docs'); setSelectedDocSection(sec.id); }}
                                     className={`w-full text-right px-3 py-2 rounded-xl text-xs font-bold transition-all ${
                                         activeTab === 'docs' && selectedDocSection === sec.id
-                                        ? 'bg-brand-50 text-brand-700 border border-brand-100'
+                                        ? 'bg-teal-50 text-teal-700 border border-teal-100'
                                         : 'text-slate-500 hover:bg-slate-50'
                                     }`}
                                 >
@@ -375,10 +375,10 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
 
         <div className="mt-auto px-6 hidden lg:block">
             <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">System Status</p>
+                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">وضعیت سیستم</p>
                 <div className="flex items-center gap-2">
                     <div className={`w-2 h-2 rounded-full ${hasContext ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                    <span className="text-xs font-bold text-slate-600">{hasContext ? 'Ready' : 'Idle'}</span>
+                    <span className="text-xs font-bold text-slate-600">{hasContext ? 'آماده' : 'غیرفعال'}</span>
                 </div>
                 {hasContext && <p className="text-[10px] text-slate-400 mt-1">{Object.keys(knowledgeGraph).length} Symbols</p>}
             </div>
@@ -473,7 +473,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
         <button 
             onClick={handleStart}
             disabled={isProcessing}
-            className="w-full py-6 bg-slate-900 text-white rounded-[2.5rem] font-bold text-lg shadow-2xl shadow-slate-900/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+            className="w-full py-6 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-[2rem] font-bold text-lg shadow-2xl shadow-slate-900/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
         >
             {isProcessing ? (
                 <>
@@ -483,7 +483,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             ) : (
                 <>
                     <Sparkles className="w-6 h-6 text-brand-400" />
-                    Start Analysis Engine
+                    شروع تحلیل هوشمند
                 </>
             )}
         </button>
@@ -524,10 +524,10 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   }
 
   return (
-    <div className="flex h-full gap-8 relative">
+    <div className="flex h-full gap-6 relative bg-slate-50/70 rounded-[2rem] p-4 border border-slate-200">
         {renderSidebar()}
         
-        <div className="flex-1 min-w-0 h-full overflow-y-auto custom-scrollbar pb-20 pt-2 px-2">
+        <div className="flex-1 min-w-0 h-full overflow-y-auto custom-scrollbar pb-20 pt-2 px-3">
             
             {activeTab === 'dashboard' && (
                 <div className="animate-in fade-in zoom-in-95 duration-500">
@@ -540,7 +540,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                             onClick={handleStart} 
                             className="bg-white border border-slate-200 text-slate-600 px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-50 hover:border-brand-200 transition-all flex items-center gap-2"
                          >
-                             <RotateCw className="w-4 h-4" /> Re-Scan
+                             <RotateCw className="w-4 h-4" /> تحلیل مجدد
                          </button>
                     </div>
 
@@ -555,17 +555,17 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
 
                     {/* Quick Access to Main Docs */}
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                         <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100">
+                         <div className="bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-200">
                              <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                                 <FileText className="w-5 h-5 text-brand-500" /> Readme Preview
+                                 <FileText className="w-5 h-5 text-brand-500" /> پیش‌نمایش معرفی
                              </h3>
                              <div className="h-64 overflow-y-auto custom-scrollbar opacity-80 text-sm">
                                  <MarkdownRenderer content={docParts['root'] || 'Generating...'} />
                              </div>
                          </div>
-                         <div className="bg-white rounded-[2rem] p-6 shadow-sm border border-slate-100">
+                         <div className="bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-200">
                              <h3 className="font-bold text-slate-700 mb-4 flex items-center gap-2">
-                                 <Network className="w-5 h-5 text-blue-500" /> Live Graph
+                                 <Network className="w-5 h-5 text-blue-500" /> گراف دانش
                              </h3>
                              <div className="h-64 rounded-2xl overflow-hidden relative">
                                   <LiveVisualization knowledgeGraph={knowledgeGraph} archViolations={archViolations} zombieFiles={zombieFiles} />
@@ -586,11 +586,11 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                             onClick={handleDownload}
                             className="py-2.5 px-4 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 hover:scale-[1.02] transition-transform"
                         >
-                            <Download className="w-4 h-4" /> خروجی Markdown
+                            <Download className="w-4 h-4" /> خروجی مستند
                         </button>
                     </div>
 
-                    <div className="bg-white rounded-[2.5rem] p-8 lg:p-12 shadow-sm border border-slate-100 min-h-[800px]">
+                    <div className="bg-white rounded-[2rem] p-6 lg:p-10 shadow-sm border border-slate-200 min-h-[800px]">
                         {docParts[selectedDocSection] ? (
                             selectedDocSection === 'api_ref'
                                 ? <ApiJsonRenderer content={docParts[selectedDocSection]} />
@@ -616,7 +616,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
 
             {activeTab === 'diagrams' && (
                 <div className="animate-in fade-in zoom-in-95 duration-500 space-y-8">
-                     <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                     <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-200">
                         <h2 className="text-2xl font-black text-slate-800 mb-6 flex items-center gap-3">
                             <Layers className="w-6 h-6 text-brand-500" /> 3D Architecture
                         </h2>
@@ -648,7 +648,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                          <ProjectStructureVisualizer fileMap={fileMap} />
                     </div>
                     
-                    <div className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-slate-100">
+                    <div className="bg-white rounded-[2rem] p-8 shadow-sm border border-slate-200">
                          <h2 className="text-2xl font-black text-slate-800 mb-6">Playground</h2>
                          <Playground />
                     </div>
@@ -659,11 +659,11 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                  <div className="h-[calc(100vh-140px)] flex flex-col bg-white rounded-[2.5rem] shadow-sm border border-slate-100 overflow-hidden animate-in fade-in slide-in-from-bottom-8">
                      <div className="bg-slate-50/50 p-6 border-b border-slate-100 flex justify-between items-center backdrop-blur-md">
                          <div>
-                             <h3 className="font-bold text-lg text-slate-800">Rayan Assistant</h3>
-                             <p className="text-xs text-slate-400">Context-Aware AI Chat</p>
+                             <h3 className="font-bold text-lg text-slate-800">دستیار هوشمند پروژه</h3>
+                             <p className="text-xs text-slate-400">چت پروژه‌محور با زمینه کد و مستندات</p>
                          </div>
                          <div className="flex gap-2">
-                             <span className="text-[10px] bg-brand-50 text-brand-600 px-3 py-1.5 rounded-full font-bold border border-brand-100">
+                             <span className="text-[10px] bg-brand-50 text-teal-600 px-3 py-1.5 rounded-full font-bold border border-brand-100">
                                  {config.model}
                              </span>
                          </div>
