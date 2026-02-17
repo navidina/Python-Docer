@@ -170,6 +170,65 @@ const CollapsibleSection = ({ children, ...props }: any) => {
     );
 };
 
+const ApiJsonBlock = ({ jsonText }: { jsonText: string }) => {
+    try {
+        const parsed = JSON.parse(jsonText);
+        const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+        if (!endpoints.length) return null;
+
+        return (
+            <div className="my-6 border border-slate-200 rounded-[1.5rem] bg-white overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+                    <h4 className="text-sm font-black text-slate-700">خلاصه تعاملی API</h4>
+                </div>
+                <div className="p-5 space-y-5" dir="ltr">
+                    {endpoints.map((ep: any, i: number) => (
+                        <div key={`${ep.method}-${ep.path}-${i}`} className="border border-slate-200 rounded-xl p-4">
+                            <div className="flex items-center gap-2 flex-wrap mb-3">
+                                <span className="px-2 py-1 text-[10px] rounded-md bg-slate-900 text-white font-bold">{ep.method || 'METHOD'}</span>
+                                <code className="text-xs text-slate-700">{ep.path || '/'}</code>
+                                {ep.source && <span className="text-[10px] text-brand-600 font-mono">{ep.source}</span>}
+                            </div>
+                            {ep.summary && <p className="text-xs text-slate-600 mb-3">{ep.summary}</p>}
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div>
+                                    <p className="text-[11px] font-bold text-slate-700 mb-2">Request</p>
+                                    <table className="w-full text-[11px] border border-slate-200">
+                                        <thead className="bg-slate-50"><tr><th className="p-1.5 text-left">Field</th><th className="p-1.5 text-left">Type</th><th className="p-1.5 text-left">Required</th><th className="p-1.5 text-left">Desc</th></tr></thead>
+                                        <tbody>
+                                            {(ep.requestBody?.fields || []).map((f: any, fi: number) => (
+                                                <tr key={fi} className="border-t border-slate-100">
+                                                    <td className="p-1.5 font-mono">{f.name}</td><td className="p-1.5">{f.type}</td><td className="p-1.5">{String(!!f.required)}</td><td className="p-1.5">{f.desc || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <p className="text-[11px] font-bold text-slate-700 mb-2">Response</p>
+                                    <table className="w-full text-[11px] border border-slate-200">
+                                        <thead className="bg-slate-50"><tr><th className="p-1.5 text-left">Field</th><th className="p-1.5 text-left">Type</th><th className="p-1.5 text-left">Required</th><th className="p-1.5 text-left">Desc</th></tr></thead>
+                                        <tbody>
+                                            {(ep.response?.fields || []).map((f: any, fi: number) => (
+                                                <tr key={fi} className="border-t border-slate-100">
+                                                    <td className="p-1.5 font-mono">{f.name}</td><td className="p-1.5">{f.type}</td><td className="p-1.5">{String(!!f.required)}</td><td className="p-1.5">{f.desc || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    } catch {
+        return null;
+    }
+};
+
 // --- CODE BLOCK RENDERER ---
 const CodeBlock = ({ inline, className, children, ...props }: any) => {
     const [isOpen, setIsOpen] = useState(false);
@@ -191,6 +250,18 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
 
     if (!inline && isMermaid) {
         return <MermaidRenderer code={codeText} />;
+    }
+
+    const isJsonLike = lang === 'json' || codeText.trim().startsWith('{');
+    if (!inline && isJsonLike) {
+        try {
+            const parsed = JSON.parse(codeText);
+            if (Array.isArray(parsed?.endpoints)) {
+                return <ApiJsonBlock jsonText={codeText} />;
+            }
+        } catch {
+            // Fall back to normal code rendering for non-JSON code blocks.
+        }
     }
 
     if (inline) {

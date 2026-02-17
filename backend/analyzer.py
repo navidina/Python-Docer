@@ -263,6 +263,49 @@ class RepoAnalyzer:
             candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]*(?:Request|Response|Dto|DTO|Model|Payload|Input|Output)\b', content))
             return {c for c in candidates if len(c) > 2}
 
+        def generate_type_name_variants(type_name):
+            variants = {type_name}
+            if type_name.startswith('I') and len(type_name) > 1 and type_name[1].isupper():
+                variants.add(type_name[1:])
+
+            kebab = re.sub(r'(?<!^)(?=[A-Z])', '-', type_name).lower()
+            variants.add(kebab)
+            variants.add(type_name.lower())
+
+            for suffix in ['request', 'response', 'dto', 'model', 'payload', 'input', 'output']:
+                variants.add(type_name.lower().replace(suffix, '').strip('-_'))
+
+            return {v for v in variants if v}
+
+        def find_type_definition_files(type_name, included_files):
+            hits = []
+            variants = generate_type_name_variants(type_name)
+            declaration_pattern = re.compile(rf"\b(?:export\s+)?(?:interface|type|enum|class)\s+{re.escape(type_name)}\b")
+
+            for path, content in self.file_map.items():
+                if path in included_files:
+                    continue
+                if not path.endswith(('.ts', '.tsx', '.d.ts', '.js')):
+                    continue
+
+                path_lower = path.lower()
+                declaration_hit = declaration_pattern.search(content) is not None
+                filename_hint_hit = any(v and v in path_lower for v in variants)
+                mention_hit = any(v and re.search(rf"\b{re.escape(v)}\b", content.lower()) for v in variants if len(v) > 2)
+
+                if declaration_hit or (filename_hint_hit and mention_hit):
+                    score = (3 if declaration_hit else 0) + (2 if filename_hint_hit else 0) + (1 if mention_hit else 0)
+                    hits.append((score, path))
+
+            hits.sort(key=lambda x: x[0], reverse=True)
+            ordered = []
+            seen = set()
+            for _, path in hits:
+                if path not in seen:
+                    ordered.append(path)
+                    seen.add(path)
+            return ordered
+
         def resolve_barrel_exports(file_path, content):
             resolved = []
             for match in re.finditer(r'export\s+(?:\*|\{[^}]+\})\s+from\s+[\"\']([^\"\']+)[\"\']', content):
@@ -334,17 +377,11 @@ class RepoAnalyzer:
             for type_name in sorted(referenced_types):
                 if len(context) >= MAX_CHARS:
                     break
-                pattern = re.compile(rf"\b(?:export\s+)?(?:interface|type|enum|class)\s+{re.escape(type_name)}\b")
-                for path, content in self.file_map.items():
-                    if path in included_files:
-                        continue
-                    if not path.endswith(('.ts', '.tsx', '.d.ts', '.js')):
-                        continue
-                    if not any(hint in path.lower() for hint in ['dto', 'model', 'interface', 'type', 'entity', 'schema', 'contract', 'request', 'response']):
-                        continue
-                    if pattern.search(content):
-                        if add_to_context(f"Found via Search ({type_name}): {path}", self._extract_types_only(content)):
-                            included_files.add(path)
+
+                for path in find_type_definition_files(type_name, included_files):
+                    if add_to_context(f"Found via Search ({type_name}): {path}", self._extract_types_only(self.file_map[path])):
+                        included_files.add(path)
+                    else:
                         break
 
         elif module_type == 'components':
