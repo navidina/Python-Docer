@@ -6,47 +6,7 @@ import * as THREE from 'three';
 import { CodeSymbol, ArchViolation } from '../types';
 import { ShieldAlert, Skull, Activity, Info, X, Box, Network, Layers, ChevronRight } from 'lucide-react';
 
-declare global {
-  namespace JSX {
-    interface IntrinsicElements {
-      group: any;
-      mesh: any;
-      boxGeometry: any;
-      meshStandardMaterial: any;
-      ambientLight: any;
-      pointLight: any;
-      spotLight: any;
-      planeGeometry: any;
-      gridHelper: any;
-      lineSegments: any;
-      edgesGeometry: any;
-      lineBasicMaterial: any;
-      sphereGeometry: any;
-      color: any;
-    }
-  }
-  // Augment React.JSX for React 18+ compatibility
-  namespace React {
-    namespace JSX {
-      interface IntrinsicElements {
-        group: any;
-        mesh: any;
-        boxGeometry: any;
-        meshStandardMaterial: any;
-        ambientLight: any;
-        pointLight: any;
-        spotLight: any;
-        planeGeometry: any;
-        gridHelper: any;
-        lineSegments: any;
-        edgesGeometry: any;
-        lineBasicMaterial: any;
-        sphereGeometry: any;
-        color: any;
-      }
-    }
-  }
-}
+// NOTE: Removed manual JSX declaration to fix collision with React's IntrinsicElements
 
 interface LiveVisualizationProps {
   knowledgeGraph: Record<string, CodeSymbol>;
@@ -158,10 +118,19 @@ const LiveVisualization: React.FC<LiveVisualizationProps> = ({ knowledgeGraph, a
     const nodes: any[] = [];
     const links: any[] = [];
     const symbolList = Object.values(knowledgeGraph) as CodeSymbol[];
+    
     symbolList.forEach(sym => {
-      const isZombie = zombieFiles.includes(sym.filePath);
-      const violation = archViolations.find(v => v.filePath === sym.filePath);
-      const degree = (sym.relationships.calledBy.length || 0) + (sym.relationships.calls.length || 0);
+      if (!sym) return; // Guard
+      const filePath = sym.filePath || '';
+      const isZombie = zombieFiles.includes(filePath);
+      const violation = archViolations.find(v => v.filePath === filePath);
+      
+      // Defensive check for relationships
+      const rels = sym.relationships || { calledBy: [], calls: [] };
+      const calledByCount = rels.calledBy?.length || 0;
+      const callsCount = rels.calls?.length || 0;
+      const degree = calledByCount + callsCount;
+      
       const val = 4 + (degree * 1.5);
       let group = 'normal';
       let color = '#8b5cf6'; 
@@ -171,27 +140,56 @@ const LiveVisualization: React.FC<LiveVisualizationProps> = ({ knowledgeGraph, a
       else if (degree > 10) { group = 'hub'; color = '#fbbf24'; }
       else if (sym.kind === 'class') { color = '#38bdf8'; } 
       else if (sym.kind === 'endpoint') { color = '#22c55e'; }
-      nodes.push({ id: sym.id, name: sym.name, val, color, group, filePath: sym.filePath, snippet: sym.codeSnippet, kind: sym.kind, isZombie, violation, complexity: sym.complexityScore || 1, degree });
-      sym.relationships.calls.forEach(targetId => { if (knowledgeGraph[targetId]) links.push({ source: sym.id, target: targetId, color: isZombie ? '#cbd5e1' : '#e2e8f0' }); });
+      
+      nodes.push({ id: sym.id, name: sym.name, val, color, group, filePath, snippet: sym.codeSnippet || '', kind: sym.kind || 'unknown', isZombie, violation, complexity: sym.complexityScore || 1, degree });
+      
+      // Links
+      if (rels.calls) {
+          rels.calls.forEach(targetId => { 
+              if (knowledgeGraph[targetId]) {
+                  links.push({ source: sym.id, target: targetId, color: isZombie ? '#cbd5e1' : '#e2e8f0' }); 
+              }
+          });
+      }
     });
     return { nodes, links };
   }, [knowledgeGraph, archViolations, zombieFiles]);
 
   const cityData = useMemo(() => {
       const symbolList = Object.values(knowledgeGraph) as CodeSymbol[];
-      symbolList.sort((a, b) => a.filePath.localeCompare(b.filePath));
+      symbolList.sort((a, b) => (a.filePath || '').localeCompare(b.filePath || ''));
       const buildings: any[] = [];
       const SPACING = 3;
       const GRID_SIZE = Math.ceil(Math.sqrt(symbolList.length));
+      
       symbolList.forEach((sym, idx) => {
+          if (!sym) return;
           const row = Math.floor(idx / GRID_SIZE);
           const col = idx % GRID_SIZE;
+          const filePath = sym.filePath || '';
+          const snippet = sym.codeSnippet || '';
+          
           let color = '#8b5cf6';
-          if (sym.filePath.endsWith('.ts') || sym.filePath.endsWith('.tsx')) color = '#38bdf8'; 
-          else if (sym.filePath.endsWith('.js')) color = '#facc15';
-          else if (sym.filePath.endsWith('.css')) color = '#f472b6';
-          else if (sym.filePath.endsWith('.py')) color = '#4ade80';
-          buildings.push({ id: sym.id, name: sym.name, x: (col - GRID_SIZE/2) * SPACING, z: (row - GRID_SIZE/2) * SPACING, height: Math.max(1, (sym.complexityScore || 1) * 1.5), width: Math.max(1, Math.min(5, Math.sqrt(sym.codeSnippet.split('\n').length) * 0.5)), color, isZombie: zombieFiles.includes(sym.filePath), filePath: sym.filePath, snippet: sym.codeSnippet, kind: sym.kind, complexity: sym.complexityScore, violation: archViolations.find(v => v.filePath === sym.filePath) });
+          if (filePath.endsWith('.ts') || filePath.endsWith('.tsx')) color = '#38bdf8'; 
+          else if (filePath.endsWith('.js')) color = '#facc15';
+          else if (filePath.endsWith('.css')) color = '#f472b6';
+          else if (filePath.endsWith('.py')) color = '#4ade80';
+          
+          buildings.push({ 
+              id: sym.id, 
+              name: sym.name, 
+              x: (col - GRID_SIZE/2) * SPACING, 
+              z: (row - GRID_SIZE/2) * SPACING, 
+              height: Math.max(1, (sym.complexityScore || 1) * 1.5), 
+              width: Math.max(1, Math.min(5, Math.sqrt(snippet.split('\n').length) * 0.5)), 
+              color, 
+              isZombie: zombieFiles.includes(filePath), 
+              filePath, 
+              snippet, 
+              kind: sym.kind, 
+              complexity: sym.complexityScore, 
+              violation: archViolations.find(v => v.filePath === filePath) 
+          });
       });
       return buildings;
   }, [knowledgeGraph, archViolations, zombieFiles]);
@@ -206,8 +204,10 @@ const LiveVisualization: React.FC<LiveVisualizationProps> = ({ knowledgeGraph, a
     ];
     const layers: any[] = layersDefinition.map(l => ({ ...l, nodes: [] }));
     const miscLayer = { id: 'misc', label: 'Modules / Others', color: '#94a3b8', nodes: [] as any[] };
+    
     symbolList.forEach(sym => {
-        const path = sym.filePath.toLowerCase();
+        if (!sym) return;
+        const path = (sym.filePath || '').toLowerCase();
         let placed = false;
         for (const layer of layers) {
             if (layer.keywords.some((k: string) => path.includes(k))) {

@@ -40,7 +40,7 @@ class ReanalyzeRequest(BaseModel):
     file_path: str
 
 def sanitize_mermaid(markdown_text: str) -> str:
-    # ... (Keep existing sanitization logic, shortened for brevity in update) ...
+    # ... (Keep existing sanitization logic) ...
     mermaid_blocks = re.findall(r'```mermaid(.*?)```', markdown_text, re.DOTALL)
     for original_block in mermaid_blocks:
         lines = original_block.strip().split('\n')
@@ -55,6 +55,10 @@ def sanitize_mermaid(markdown_text: str) -> str:
             fixed_lines.append(line)
         markdown_text = markdown_text.replace(original_block, f"\n{'\n'.join(fixed_lines)}\n")
     return markdown_text
+
+@app.get("/")
+def health_check():
+    return {"status": "ok", "message": "Rayan Backend is running"}
 
 @app.post("/generate-docs")
 async def generate_docs(request: GenerateRequest):
@@ -239,4 +243,6 @@ async def reanalyze_file_endpoint(request: ReanalyzeRequest):
 
 if __name__ == "__main__":
     import uvicorn
+    print("\n🚀 Rayan Backend is starting on http://localhost:8000")
+    print("👉 Swagger UI: http://localhost:8000/docs\n")
     uvicorn.run(app, host="0.0.0.0", port=8000)

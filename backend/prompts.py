@@ -1,102 +1,58 @@
 
 PROMPTS = {
     "root": """
-Role: Senior Technical Writer (Persian Native Speaker).
-TASK: Write a professional README.md strictly in PERSIAN (Farsi).
-
-CRITICAL LANGUAGE RULE: 
-- ALL explanations, summaries, and descriptions MUST be in Persian.
-- Only keep technical terms (like React, Docker, API, JSON, Controller) in English.
-- Do NOT write the introduction or headers in English.
-
-Structure:
-# [Project Name]
-> [Executive Summary in Persian - 2 paragraphs]
-
-## 🚀 ویژگی‌ها (Features)
-- [Bullet points in Persian]
-
-## 🛠 تکنولوژی‌ها (Tech Stack)
-- [List]
-
-## 🏗 معماری (Architecture)
-[Explanation in Persian]
+You are a Senior Technical Writer.
+TASK: Write a professional README.md for this project in Persian (Farsi).
+Start with a high-level executive summary using the package.json and file structure.
+Then list features, tech stack, and installation guide.
 """,
 
     "setup": """
-Role: DevOps Engineer & Technical Writer (Persian).
-Task: Write a "Getting Started" guide based on 'package.json' and config files.
-
-CRITICAL LANGUAGE RULE: Output MUST be in Persian (Farsi).
-
-INSTRUCTIONS:
-1. **Prerequisites**: List required tools (Node.js version, Python, Docker, etc.).
-2. **Installation**: Show exact commands (`npm install`).
-3. **Environment**: If `.env.example` exists, list key variables.
-
-STRICT FORMAT (Persian):
-## 🚀 راهنمای راه‌اندازی
-
-### پیش‌نیازها
-* ...
-
-### نصب و اجرا
-```bash
-...
-```
-
-### متغیرهای محیطی (.env)
-| متغیر | توضیح (فارسی) |
-| --- | --- |
-...
+Role: DevOps Engineer.
+Task: Write a "Getting Started" guide in Persian based on config files.
+Include Prerequisites, Installation (npm/pip), and Environment Variables table.
 """,
 
     "arch": """
-Role: Software Architect (Persian).
-TASK: Analyze the file structure and dependencies.
-Describe the architectural patterns used (MVC, Clean Arch, etc.) in PERSIAN.
-Draw a 'graph TD' Mermaid diagram showing high-level module interactions.
-
-CRITICAL: The text explanation MUST be in Persian. The Mermaid code stays in English.
+Role: Software Architect.
+TASK: Analyze the file structure. Describe the architectural patterns (MVC, Clean Arch, etc.) in Persian.
+Draw a 'graph TD' Mermaid diagram showing module interactions.
 """,
 
     "erd": """
 Role: Database Architect.
 Task: Create a Mermaid 'erDiagram'.
-STRICT RULES:
-1. Output ONLY the mermaid code block.
-2. NO text descriptions outside the block.
+STRICT RULES: Output ONLY the mermaid code block. Use simple entity names.
 """,
 
     "sequence": """
 Role: System Architect.
-Task: Create a Mermaid 'sequenceDiagram'.
-CRITICAL: Output ONLY the mermaid code block.
+Task: Create a Mermaid 'sequenceDiagram' for CORE BUSINESS LOGIC.
+Use real method names found in the code. Output ONLY the mermaid code block.
 """,
 
     "api": """
 Role: API Developer.
-Task: Create a Mermaid 'graph LR'.
-CRITICAL: Output ONLY the mermaid code block.
+Task: Create a Mermaid 'graph LR' showing API endpoints.
+Output ONLY the mermaid code block.
 """,
 
     "components": """
-Role: Senior Frontend Developer (Persian).
-Task: Create a "Component Library Reference" for the React components.
+Role: Senior Frontend Developer.
+Task: Document the Component Library in Persian.
 
-CRITICAL LANGUAGE RULE: ALL descriptions MUST be in PERSIAN.
-
-INSTRUCTIONS:
-1. **Analyze Props**: Look for `interface Props`.
-2. **Document Each Prop**: Name, Type, Description (in Persian).
+CRITICAL INSTRUCTION:
+Look for the `interface` or `type` defining the Props. It might be imported from another file (labeled as --- DEPENDENCY --- in the context).
+You MUST resolve the props and list them in a table.
 
 STRICT FORMAT:
 ## ComponentName
-**توضیحات:** ... (به فارسی)
+**توضیحات:** ...
 **Props:**
-| ویژگی | نوع | الزامی | توضیحات (فارسی) |
-|---|---|---|---|
-| title | string | بله | عنوان کارت |
+| ویژگی (Prop) | نوع (Type) | الزامی؟ | پیش‌فرض | توضیحات |
+|-----------|------|----------|---------|-------------|
+| title | string | بله | - | عنوان کارت |
+| onClick | () => void | خیر | undefined | رویداد کلیک |
 
 **مثال:**
 ```tsx
@@ -106,28 +62,28 @@ STRICT FORMAT:
 """,
 
     "api_ref": """
-Role: Backend Developer (Persian).
-Task: Create a detailed "API Reference" documentation in PERSIAN.
+Role: Senior Backend Developer.
+Task: Generate a comprehensive API Reference in Persian.
 
-CRITICAL LANGUAGE RULE: Output MUST be in Persian.
+CRITICAL INSTRUCTION - DATA MODELS:
+You are provided with Service files AND their dependency files (DTOs/Interfaces).
+When you list a Request Body or Response, you **MUST NOT** just write the interface name (e.g., `IUserRequest`).
+Instead, you **MUST expand** it into a detailed table showing its internal fields found in the dependency files.
 
-INSTRUCTIONS:
-1. **Endpoints**: For each service method, list the HTTP Method, URL.
-2. **DTOs**: Expand interface definitions into tables with Persian descriptions.
+STRICT FORMAT per Endpoint:
+### `METHOD /url`
+**عملکرد:** نام تابع (`functionName`)
+**توضیحات:** ...
+**مدل درخواست:** (`IUserRequest`)
+| فیلد | نوع | اختیاری؟ | توضیحات |
+|-------|------|-----------|-------------|
+| username | string | خیر | نام کاربری یکتا |
+| age | number | بله | سن کاربر |
 
-STRICT FORMAT:
-## سرویس کاربران (User Services)
-
-### `GET /api/users`
-* **عملکرد:** دریافت لیست کاربران
-* **مدل درخواست:**
-  | فیلد | نوع | توضیحات (فارسی) |
-  |---|---|---|
-  | page | number | شماره صفحه |
-* **مدل پاسخ (`IUser`):**
-  | فیلد | نوع | توضیحات (فارسی) |
-  |---|---|---|
-  | id | string | شناسه کاربر |
+**مدل پاسخ:** (`IUserResponse`)
+| فیلد | نوع | توضیحات |
+|-------|------|-------------|
+| id | string | شناسه سیستمی |
 
 ---
 """

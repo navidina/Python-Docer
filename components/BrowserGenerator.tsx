@@ -175,30 +175,36 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
         vectorStoreRef
     });
   };
-  
-  const handleExport = () => {
-    let content = generatedDoc;
-    // Fallback if generatedDoc is empty (e.g. partial generation) but we have parts
-    if (!content && Object.keys(docParts).length > 0) {
-         content = Object.keys(docParts).map(key => {
-             return `# ${key.toUpperCase()}\n\n${docParts[key]}`;
-         }).join('\n\n---\n\n');
-    }
-    
-    if (!content) {
-        alert("هیچ مستنداتی برای دانلود وجود ندارد.");
-        return;
-    }
 
-    const blob = new Blob([content], { type: 'text/markdown' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `DOCUMENTATION_${new Date().toISOString().split('T')[0]}.md`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const handleDownload = () => {
+      // Reconstruct full doc from current parts to include edits
+      let fullContent = "";
+      const order = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'api_ref', 'smart_audit'];
+      
+      order.forEach(key => {
+          if (docParts[key]) {
+              fullContent += docParts[key] + "\n\n---\n\n";
+          }
+      });
+
+      if (!fullContent) {
+          if (generatedDoc) {
+             fullContent = generatedDoc; // Fallback
+          } else {
+             alert("هنوز مستنداتی تولید نشده است.");
+             return;
+          }
+      }
+
+      const blob = new Blob([fullContent], { type: 'text/markdown' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `documentation-${new Date().toISOString().slice(0,10)}.md`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
   };
 
   // --- RENDER HELPERS ---
@@ -301,7 +307,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             {[
                 { id: 'root', label: 'Readme & Intro', icon: FileText },
-                { id: 'setup', label: 'Setup Guide', icon: Terminal }, 
+                { id: 'setup', label: 'Setup Guide', icon: Terminal }, // NEW
                 { id: 'arch', label: 'Architecture', icon: Layers },
                 { id: 'erd', label: 'Database ERD', icon: Database },
                 { id: 'sequence', label: 'Flows', icon: GitMerge },
@@ -406,7 +412,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                         stats={stats} 
                         docParts={docParts} 
                         knowledgeGraph={knowledgeGraph} 
-                        archViolations={archViolations}
+                        archViolations={archViolations} 
                         fileMap={fileMap} 
                     />
 
@@ -460,7 +466,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                          
                          <div className="mt-auto pt-4 border-t border-slate-100">
                              <button 
-                                onClick={handleExport}
+                                onClick={handleDownload}
                                 className="w-full py-3 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 hover:scale-[1.02] transition-transform"
                              >
                                  <Download className="w-4 h-4" /> Export MD
