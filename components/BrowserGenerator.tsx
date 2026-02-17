@@ -109,6 +109,52 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
     );
 };
 
+const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string; knowledgeGraph: any }) => {
+    const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
+    const title = lines.find(l => l.startsWith('#'))?.replace(/^#+\s*/, '') || 'معرفی پروژه';
+    const firstParagraph = lines.find(l => !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('*') && !l.startsWith('|') && !l.startsWith('```')) || 'این بخش خلاصه‌ای از هدف، دامنه و ارزش پروژه را نمایش می‌دهد.';
+    const bullets = lines.filter(l => l.startsWith('- ') || l.startsWith('* ')).slice(0, 6).map(l => l.replace(/^[-*]\s*/, ''));
+
+    return (
+        <div className="space-y-6">
+            <div className="rounded-3xl border border-brand-100 bg-gradient-to-l from-brand-50/70 to-white p-6">
+                <h2 className="text-2xl font-black text-slate-800 mb-3">{title}</h2>
+                <p className="text-slate-600 leading-8">{firstParagraph}</p>
+                <div className="mt-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div className="rounded-2xl bg-white border border-slate-100 p-4">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">نوع محتوا</p>
+                        <p className="text-sm font-bold text-slate-700 mt-1">شناخت سریع پروژه</p>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-slate-100 p-4">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">تمرکز</p>
+                        <p className="text-sm font-bold text-slate-700 mt-1">دامنه، قابلیت‌ها، راه‌اندازی</p>
+                    </div>
+                    <div className="rounded-2xl bg-white border border-slate-100 p-4">
+                        <p className="text-[10px] uppercase tracking-wider text-slate-400 font-bold">منبع</p>
+                        <p className="text-sm font-bold text-slate-700 mt-1">خلاصه مستند تولیدشده</p>
+                    </div>
+                </div>
+            </div>
+
+            {bullets.length > 0 && (
+                <div className="rounded-3xl border border-slate-100 bg-white p-6">
+                    <h3 className="text-lg font-extrabold text-slate-800 mb-4">نکات کلیدی پروژه</h3>
+                    <ul className="space-y-2">
+                        {bullets.map((b, i) => (
+                            <li key={i} className="text-slate-600 flex items-start gap-2"><span className="text-brand-500 mt-1">•</span><span>{b}</span></li>
+                        ))}
+                    </ul>
+                </div>
+            )}
+
+            <div className="rounded-3xl border border-slate-100 bg-white p-6">
+                <h3 className="text-lg font-extrabold text-slate-800 mb-4">جزئیات کامل</h3>
+                <MarkdownRenderer content={content} knowledgeGraph={knowledgeGraph} isEditable={true} sectionId="root" showTOC={true} />
+            </div>
+        </div>
+    );
+};
+
 // Mini Component for Sparkline
 const ApiJsonRenderer = ({ content }: { content: string }) => {
     try {
@@ -196,6 +242,15 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code'>('dashboard');
   const [selectedDocSection, setSelectedDocSection] = useState<string>('root');
+
+  const docSections = [
+    { id: 'root', label: 'نمای کلی پروژه' },
+    { id: 'setup', label: 'راهنمای راه‌اندازی' },
+    { id: 'arch', label: 'معماری' },
+    { id: 'api_ref', label: 'مرجع API' },
+    { id: 'components', label: 'کامپوننت‌ها' },
+    { id: 'erd', label: 'پایگاه داده' },
+  ];
   
   const vectorStoreRef = useRef<LocalVectorStore | null>(null);
 
@@ -283,19 +338,38 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                 { id: 'code', icon: Code, label: 'تحلیل کد' },
                 { id: 'chat', icon: MessageSquare, label: 'چت هوشمند' },
             ].map(item => (
-                <button
-                    key={item.id}
-                    onClick={() => setActiveTab(item.id as any)}
-                    className={`flex items-center gap-3 p-3 lg:px-5 lg:py-4 rounded-2xl transition-all duration-300 group relative ${
-                        activeTab === item.id 
-                        ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105' 
-                        : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'
-                    }`}
-                >
-                    <item.icon className={`w-6 h-6 ${activeTab === item.id ? 'animate-pulse' : ''}`} />
-                    <span className="hidden lg:block font-bold text-sm tracking-wide">{item.label}</span>
-                    {activeTab === item.id && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white/20 rounded-l-full"></div>}
-                </button>
+                <div key={item.id}>
+                    <button
+                        onClick={() => setActiveTab(item.id as any)}
+                        className={`w-full flex items-center gap-3 p-3 lg:px-5 lg:py-4 rounded-2xl transition-all duration-300 group relative ${
+                            activeTab === item.id 
+                            ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105' 
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'
+                        }`}
+                    >
+                        <item.icon className={`w-6 h-6 ${activeTab === item.id ? 'animate-pulse' : ''}`} />
+                        <span className="hidden lg:block font-bold text-sm tracking-wide">{item.label}</span>
+                        {activeTab === item.id && <div className="absolute right-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-white/20 rounded-l-full"></div>}
+                    </button>
+
+                    {item.id === 'docs' && (
+                        <div className="hidden lg:block mt-2 mr-8 space-y-1">
+                            {docSections.map(sec => (
+                                <button
+                                    key={sec.id}
+                                    onClick={() => { setActiveTab('docs'); setSelectedDocSection(sec.id); }}
+                                    className={`w-full text-right px-3 py-2 rounded-xl text-xs font-bold transition-all ${
+                                        activeTab === 'docs' && selectedDocSection === sec.id
+                                        ? 'bg-brand-50 text-brand-700 border border-brand-100'
+                                        : 'text-slate-500 hover:bg-slate-50'
+                                    }`}
+                                >
+                                    {sec.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+                </div>
             ))}
         </div>
 
@@ -502,57 +576,38 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             )}
 
             {activeTab === 'docs' && (
-                <div className="animate-in fade-in slide-in-from-right-8 duration-500 flex items-start gap-8">
-                    {/* Doc Navigation Sidebar */}
-                    <div className="w-64 shrink-0 bg-white rounded-[2rem] p-4 shadow-sm border border-slate-100 sticky top-4 h-[calc(100vh-140px)] flex flex-col gap-2">
-                         <p className="text-xs font-bold text-slate-400 uppercase mb-2 px-2">Sections</p>
-                         {[
-                             {id: 'root', label: 'Overview'},
-                             {id: 'setup', label: 'Setup Guide'},
-                             {id: 'arch', label: 'Architecture'},
-                             {id: 'api_ref', label: 'API Reference'},
-                             {id: 'components', label: 'Components'},
-                             {id: 'erd', label: 'Database'},
-                         ].map(sec => (
-                             <button
-                                key={sec.id}
-                                onClick={() => setSelectedDocSection(sec.id)}
-                                className={`text-right px-4 py-3 rounded-xl text-sm font-bold transition-all ${
-                                    selectedDocSection === sec.id 
-                                    ? 'bg-brand-50 text-brand-700 shadow-sm border border-brand-100' 
-                                    : 'text-slate-500 hover:bg-slate-50'
-                                }`}
-                             >
-                                 {sec.label}
-                             </button>
-                         ))}
-                         
-                         <div className="mt-auto pt-4 border-t border-slate-100">
-                             <button 
-                                onClick={handleDownload}
-                                className="w-full py-3 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 hover:scale-[1.02] transition-transform"
-                             >
-                                 <Download className="w-4 h-4" /> Export MD
-                             </button>
-                         </div>
+                <div className="animate-in fade-in slide-in-from-right-8 duration-500 space-y-4">
+                    <div className="flex items-center justify-between bg-white rounded-2xl p-4 border border-slate-100 shadow-sm">
+                        <div>
+                            <p className="text-xs text-slate-400 font-bold">بخش انتخاب‌شده</p>
+                            <p className="text-sm font-extrabold text-slate-700">{docSections.find(s => s.id === selectedDocSection)?.label || 'مستندات'}</p>
+                        </div>
+                        <button 
+                            onClick={handleDownload}
+                            className="py-2.5 px-4 bg-slate-900 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-2 shadow-lg shadow-slate-900/20 hover:scale-[1.02] transition-transform"
+                        >
+                            <Download className="w-4 h-4" /> خروجی Markdown
+                        </button>
                     </div>
 
-                    <div className="flex-1 bg-white rounded-[2.5rem] p-8 lg:p-12 shadow-sm border border-slate-100 min-h-[800px]">
+                    <div className="bg-white rounded-[2.5rem] p-8 lg:p-12 shadow-sm border border-slate-100 min-h-[800px]">
                         {docParts[selectedDocSection] ? (
                             selectedDocSection === 'api_ref'
                                 ? <ApiJsonRenderer content={docParts[selectedDocSection]} />
-                                : <MarkdownRenderer 
-                                    content={docParts[selectedDocSection]} 
-                                    knowledgeGraph={knowledgeGraph} 
-                                    isEditable={true}
-                                    sectionId={selectedDocSection}
-                                    onSave={saveManualOverride}
-                                    showTOC={true}
-                                />
+                                : selectedDocSection === 'root'
+                                    ? <ProjectOverviewRenderer content={docParts[selectedDocSection]} knowledgeGraph={knowledgeGraph} />
+                                    : <MarkdownRenderer 
+                                        content={docParts[selectedDocSection]} 
+                                        knowledgeGraph={knowledgeGraph} 
+                                        isEditable={true}
+                                        sectionId={selectedDocSection}
+                                        onSave={saveManualOverride}
+                                        showTOC={true}
+                                    />
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-4">
                                 <Loader2 className="w-12 h-12 animate-spin" />
-                                <span className="font-bold">Generating {selectedDocSection}...</span>
+                                <span className="font-bold">در حال تولید بخش {docSections.find(s => s.id === selectedDocSection)?.label || selectedDocSection} ...</span>
                             </div>
                         )}
                     </div>
