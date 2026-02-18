@@ -311,6 +311,8 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
     api: true,
     components: true,
     api_ref: true,
+    examples: true,
+    testing: true,
     smart_audit: false
   });
 
@@ -323,6 +325,8 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
     { id: 'arch', label: 'معماری' },
     { id: 'api_ref', label: 'مرجع API' },
     { id: 'components', label: 'کامپوننت‌ها' },
+    { id: 'examples', label: 'مثال‌های کد' },
+    { id: 'testing', label: 'راهنمای تست' },
     { id: 'erd', label: 'پایگاه داده' },
   ];
   
@@ -370,7 +374,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const handleDownload = () => {
       // Reconstruct full doc from current parts to include edits
       let fullContent = "";
-      const order = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'api_ref', 'smart_audit'];
+      const order = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'examples', 'testing', 'api_ref', 'smart_audit'];
       
       order.forEach(key => {
           if (docParts[key]) {

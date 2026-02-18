@@ -20,6 +20,7 @@ Rayan HamAfza Docs is a modern React application designed to automatically gener
     *   Data Flow Diagrams
     *   User Journey & Use Cases
 *   **RAG Chat:** Chat with your codebase using Retrieval-Augmented Generation.
+*   **Examples & Testing Docs:** Auto-generates practical usage examples and a full testing guide (Unit/Integration/E2E).
 *   **Playground:** Integrated JavaScript playground to test pure functions extracted from your code.
 
 ## Prerequisites

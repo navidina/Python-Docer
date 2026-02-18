@@ -541,6 +541,35 @@ class RepoAnalyzer:
                     if not add_to_context(f"Entry Point: {path}", content):
                         break
 
+
+        elif module_type == 'examples':
+            # Prefer reusable implementation points for usage examples.
+            example_keywords = ['component', 'hook', 'service', 'util', 'helper', 'client', 'api']
+            for path, content in self.file_map.items():
+                if len(context) >= MAX_CHARS:
+                    break
+                lower = path.lower()
+                if path.endswith(('.tsx', '.ts', '.jsx', '.js', '.py')) and any(k in lower for k in example_keywords):
+                    if not add_to_context(f"Example Candidate: {path}", content):
+                        break
+
+        elif module_type == 'testing':
+            # Include existing tests first.
+            for path, content in self.file_map.items():
+                if len(context) >= MAX_CHARS:
+                    break
+                lower = path.lower()
+                is_test = any(k in lower for k in ['.test.', '.spec.', '__tests__', 'e2e', 'playwright', 'cypress'])
+                if is_test and path.endswith(('.ts', '.tsx', '.js', '.jsx', '.py', '.md', '.json')):
+                    if not add_to_context(f"Test File: {path}", content):
+                        break
+
+            # Include test config and scripts for guide generation.
+            test_configs = ['package.json', 'pytest.ini', 'vitest.config.ts', 'jest.config.js', 'playwright.config.ts', 'cypress.config.ts']
+            for conf in test_configs:
+                if conf in self.file_map:
+                    if not add_to_context(f"Test Config: {conf}", self.file_map[conf]):
+                        break
         elif module_type == 'arch':
             context = self.tree_structure + "\n"
             for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml', 'Dockerfile']:

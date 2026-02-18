@@ -78,7 +78,8 @@ INSTRUCTIONS:
 4. If a field type references another interface/type, expand it inline recursively when possible.
 5. `source` MUST always be in exact format [[functionName:filePath:line]] (line is required).
 6. If a definition is missing, keep field type as "unknown" and set desc to "Definition not available in context".
-7. Output PURE JSON only (no Markdown, no backticks, no explanations).
+7. Add `requestExample`, `responseExample`, and `errorResponses` when possible.
+8. Output PURE JSON only (no Markdown, no backticks, no explanations).
 
 JSON STRUCTURE:
 {
@@ -93,13 +94,63 @@ JSON STRUCTURE:
           {"name": "username", "type": "string", "required": true, "desc": "Unique handle"}
         ]
       },
+      "requestExample": {
+        "username": "omid"
+      },
       "response": {
         "fields": [
           {"name": "id", "type": "string", "required": true, "desc": "Generated id"}
         ]
-      }
+      },
+      "responseExample": {
+        "id": "usr_123"
+      },
+      "errorResponses": [
+        {
+          "status": 400,
+          "code": "VALIDATION_ERROR",
+          "message": "username is required",
+          "example": {"error": "VALIDATION_ERROR"}
+        }
+      ]
     }
   ]
 }
+""",
+
+    "examples": """
+Role: Senior Developer Advocate.
+Task: Create a practical "How to use" guide in Persian with concrete code examples.
+
+INSTRUCTIONS:
+1. Focus on top-level reusable components/services/utilities used in this project.
+2. Provide at least 10 concise examples when context permits.
+3. Each example must include:
+   - title
+   - when to use
+   - code block (tsx/ts/js/py as appropriate)
+   - expected output/behavior
+4. Add source references in prose as [[Name:filePath:line]].
+5. Prefer copy-paste-ready snippets.
+""",
+
+    "testing": """
+Role: Senior QA Engineer.
+Task: Write a complete testing guide in Persian.
+
+REQUIRED SECTIONS:
+- Testing strategy (Unit / Integration / E2E)
+- Folder/file naming conventions for tests
+- How to run tests locally and in CI
+- Example Unit Test (realistic)
+- Example Integration Test (realistic)
+- Example E2E Test (realistic)
+- Mocking and test-data guidelines
+- Common pitfalls and debugging tips
+
+INSTRUCTIONS:
+- Use actual project technologies inferred from context.
+- Include runnable code snippets.
+- Mention source references as [[Name:filePath:line]] where possible.
 """
 }

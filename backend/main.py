@@ -18,6 +18,8 @@ app = FastAPI()
 SAFE_CONTEXT_LIMITS = {
     "api_ref": 60000,
     "components": 50000,
+    "examples": 60000,
+    "testing": 60000,
 }
 
 app.add_middleware(
