@@ -10,6 +10,19 @@ interface OnFileClick {
   (path: string, line?: number): void;
 }
 
+const unwrapMarkdownFences = (input: string): string => {
+  if (!input) return '';
+
+  // If the whole answer is wrapped in a markdown fence, unwrap it.
+  const fullFence = input.match(/^\s*```(?:markdown|md)?\s*\n([\s\S]*?)\n```\s*$/i);
+  if (fullFence) {
+    return fullFence[1];
+  }
+
+  // Also unwrap embedded markdown fences that appear inside long sections.
+  return input.replace(/```(?:markdown|md)\s*\n([\s\S]*?)\n```/gi, '$1');
+};
+
 const ApiJsonBlock = ({ jsonText, onFileClick }: { jsonText: string; onFileClick?: OnFileClick }) => {
   try {
     const parsed = JSON.parse(jsonText);
@@ -107,6 +120,11 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
     }
   }
 
+  // Many model outputs wrap prose in ```markdown ... ```; make that visually light instead of dark code.
+  if (!inline && (lang === 'markdown' || lang === 'md')) {
+    return <div className="my-5 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 whitespace-pre-wrap">{codeText}</div>;
+  }
+
   return (
     <div className="my-6 dir-ltr border border-slate-200 rounded-xl overflow-hidden bg-[#1E293B]">
       <div className="flex items-center justify-between px-4 py-2 bg-[#0F172A] border-b border-slate-700">
@@ -137,16 +155,31 @@ interface MarkdownRendererProps {
 }
 
 const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onFileClick }) => {
-  const processedContent = content.replace(/\[\[([^:\]]+):([^:\]]+):(\d+)\]\]/g, (_m, name, filePath, line) => {
+  const normalizedContent = unwrapMarkdownFences(content);
+  const processedContent = normalizedContent.replace(/\[\[([^:\]]+):([^:\]]+):(\d+)\]\]/g, (_m, name, filePath, line) => {
     return `[${name}](code://${filePath}#L${line})`;
   });
 
   return (
-    <div className="w-full text-right" dir="rtl">
+    <div className="w-full text-right leading-8 text-slate-700" dir="rtl">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[rehypeRaw]}
         components={{
+          h1: ({ children }) => <h1 className="text-3xl font-black text-slate-900 mb-4 mt-2">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-2xl font-extrabold text-slate-800 mt-8 mb-3">{children}</h2>,
+          h3: ({ children }) => <h3 className="text-xl font-bold text-slate-700 mt-6 mb-2">{children}</h3>,
+          p: ({ children }) => <p className="mb-4 text-[17px] leading-8 text-slate-600">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc pr-6 mb-4 space-y-2 marker:text-brand-500">{children}</ul>,
+          ol: ({ children }) => <ol className="list-decimal pr-6 mb-4 space-y-2 marker:text-brand-500">{children}</ol>,
+          li: ({ children }) => <li className="text-slate-700">{children}</li>,
+          table: ({ children }) => (
+            <div className="my-5 overflow-x-auto border border-slate-200 rounded-xl">
+              <table className="min-w-full bg-white">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => <th className="bg-slate-50 text-slate-700 text-sm font-bold p-3 border-b border-slate-200">{children}</th>,
+          td: ({ children }) => <td className="text-sm text-slate-700 p-3 border-b border-slate-100">{children}</td>,
           a: ({ href, children }) => {
             if (href && href.startsWith('code://')) {
               const pathInfo = href.replace('code://', '');
