@@ -1,9 +1,10 @@
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { OllamaConfig, ProcessingLog, ProcessedFile, CodeSymbol, BusinessRule, ArchViolation, ManualOverride } from '../types';
 
 // Python Backend URL
 const API_URL = 'http://localhost:8000/generate-docs';
+const PROCESSOR_SESSION_KEY = 'rayan_processor_session_v1';
 
 interface UseRepoProcessorProps {
   config: OllamaConfig;
@@ -36,6 +37,47 @@ export const useRepoProcessor = () => {
   const [currentFile, setCurrentFile] = useState<string>('');
   const [fileMap, setFileMap] = useState<Record<string, ProcessedFile>>({});
   const [manualOverrides, setManualOverrides] = useState<Record<string, ManualOverride>>({});
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(PROCESSOR_SESSION_KEY);
+      if (!raw) return;
+      const snapshot = JSON.parse(raw);
+
+      if (snapshot.generatedDoc) setGeneratedDoc(snapshot.generatedDoc);
+      if (snapshot.docParts) setDocParts(snapshot.docParts);
+      if (Array.isArray(snapshot.stats)) setStats(snapshot.stats);
+      if (snapshot.knowledgeGraph && typeof snapshot.knowledgeGraph === 'object') setKnowledgeGraph(snapshot.knowledgeGraph);
+      if (Array.isArray(snapshot.codeHealth)) setCodeHealth(snapshot.codeHealth);
+      if (snapshot.manualOverrides && typeof snapshot.manualOverrides === 'object') setManualOverrides(snapshot.manualOverrides);
+
+      const restoredHasContext = Boolean(snapshot.generatedDoc) || Boolean(snapshot.docParts && Object.keys(snapshot.docParts).length > 0);
+      setHasContext(restoredHasContext);
+
+      if (restoredHasContext) {
+        addLog('Previous documentation session restored from local storage.', 'success');
+      }
+    } catch (error) {
+      console.warn('Failed to restore processor session.', error);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    try {
+      const payload = {
+        generatedDoc,
+        docParts,
+        stats,
+        knowledgeGraph,
+        codeHealth,
+        manualOverrides,
+      };
+      localStorage.setItem(PROCESSOR_SESSION_KEY, JSON.stringify(payload));
+    } catch (error) {
+      console.warn('Failed to persist processor session.', error);
+    }
+  }, [generatedDoc, docParts, stats, knowledgeGraph, codeHealth, manualOverrides]);
 
   const addLog = (message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
     setLogs(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
