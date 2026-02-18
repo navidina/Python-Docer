@@ -8,5 +8,4 @@ httpx
 tiktoken
 gitpython
 lancedb
-sentence-transformers
 pyarrow

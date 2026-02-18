@@ -86,8 +86,10 @@ Then `/chat` retrieves relevant chunks directly from LanceDB, and `/get-file` re
 Embedding source is configurable via environment variables on backend:
 - `EMBEDDING_BASE_URL` (default: `http://127.0.0.1:1234/v1`)
 - `EMBEDDING_MODEL` (default: `text-embedding-all-minilm-l6-v2-embedding`)
+- `EMBEDDING_ALLOW_LOCAL_FALLBACK` (default: `false`)
 
-This allows reusing the embedding model already available in LM Studio without forcing a fresh model download in normal runs.
+By default, backend will NOT fallback to local `sentence-transformers` if LM Studio is unreachable; it fails fast with a clear error so setup issues are explicit.
+Set `EMBEDDING_ALLOW_LOCAL_FALLBACK=true` only if you intentionally want local fallback behavior.
 
 ## Architecture Overview
 

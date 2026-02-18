@@ -12,9 +12,11 @@ class VectorDBService:
 
     def __init__(self, db_path: str = "shared_data/lancedb", table_name: str = "code_chunks"):
         # Prefer LM Studio/OpenAI-compatible embedding endpoint so we can reuse already-downloaded models.
-        self.embedding_base_url = os.getenv("EMBEDDING_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+        base_url = os.getenv("EMBEDDING_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+        self.embedding_base_url = base_url[:-3] if base_url.endswith("/v1") else base_url
         self.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-all-minilm-l6-v2-embedding")
         self.embedding_timeout_s = float(os.getenv("EMBEDDING_TIMEOUT_S", "120"))
+        self.allow_local_fallback = os.getenv("EMBEDDING_ALLOW_LOCAL_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
         self._local_encoder = None
 
         self.db = lancedb.connect(db_path)
@@ -49,7 +51,7 @@ class VectorDBService:
         if not texts:
             return []
 
-        url = f"{self.embedding_base_url}/embeddings"
+        url = f"{self.embedding_base_url}/v1/embeddings"
         payload = {
             "model": self.embedding_model,
             "input": texts,
@@ -64,7 +66,6 @@ class VectorDBService:
         if len(items) != len(texts):
             raise RuntimeError(f"Embedding response size mismatch: expected {len(texts)}, got {len(items)}")
 
-        # OpenAI format includes index field; sort to guarantee order.
         ordered = sorted(items, key=lambda x: x.get("index", 0))
         vectors = [row.get("embedding") for row in ordered]
         if any(v is None for v in vectors):
@@ -73,7 +74,6 @@ class VectorDBService:
         return vectors
 
     def _encode_with_local_fallback(self, texts: List[str]) -> List[List[float]]:
-        """Fallback only if remote endpoint is unavailable."""
         if self._local_encoder is None:
             from sentence_transformers import SentenceTransformer
             self._local_encoder = SentenceTransformer("all-MiniLM-L6-v2")
@@ -83,8 +83,17 @@ class VectorDBService:
         try:
             return self._encode_with_remote(texts)
         except Exception as remote_exc:
-            print(f"⚠️ Remote embedding failed ({remote_exc}); falling back to local sentence-transformers.")
-            return self._encode_with_local_fallback(texts)
+            if self.allow_local_fallback:
+                print(f"⚠️ Remote embedding failed ({remote_exc}); falling back to local sentence-transformers.")
+                return self._encode_with_local_fallback(texts)
+
+            raise RuntimeError(
+                "Remote embedding request failed. "
+                f"base_url={self.embedding_base_url}/v1, model={self.embedding_model}. "
+                "Make sure LM Studio server is running and the embedding model is loaded. "
+                "If you want local sentence-transformers fallback, set EMBEDDING_ALLOW_LOCAL_FALLBACK=true. "
+                f"Original error: {remote_exc}"
+            ) from remote_exc
 
     def clear_repo(self, repo_id: str):
         self.table.delete(f"repo_id = '{repo_id}'")
