@@ -2,6 +2,7 @@ import hashlib
 import os
 from typing import Any, Dict, List, Optional
 
+import httpx
 import lancedb
 import pyarrow as pa
 
@@ -10,15 +11,12 @@ class VectorDBService:
     """Centralized LanceDB service for code/document chunks."""
 
     def __init__(self, db_path: str = "shared_data/lancedb", table_name: str = "code_chunks"):
-        try:
-            from sentence_transformers import SentenceTransformer
-        except Exception as exc:  # pragma: no cover - runtime dependency guard
-            raise RuntimeError(
-                "sentence-transformers is required for LanceDB embedding. "
-                "Install backend requirements first."
-            ) from exc
+        # Prefer LM Studio/OpenAI-compatible embedding endpoint so we can reuse already-downloaded models.
+        self.embedding_base_url = os.getenv("EMBEDDING_BASE_URL", "http://127.0.0.1:1234/v1").rstrip("/")
+        self.embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-all-minilm-l6-v2-embedding")
+        self.embedding_timeout_s = float(os.getenv("EMBEDDING_TIMEOUT_S", "120"))
+        self._local_encoder = None
 
-        self.encoder = SentenceTransformer("all-MiniLM-L6-v2")
         self.db = lancedb.connect(db_path)
         self.table_name = table_name
 
@@ -46,6 +44,48 @@ class VectorDBService:
         payload = f"{repo_id}|{file_path}|{start_line}|{end_line}|{chunk_type}|{name}"
         return hashlib.sha1(payload.encode("utf-8")).hexdigest()
 
+    def _encode_with_remote(self, texts: List[str]) -> List[List[float]]:
+        """Encode via OpenAI-compatible /v1/embeddings endpoint (LM Studio supported)."""
+        if not texts:
+            return []
+
+        url = f"{self.embedding_base_url}/embeddings"
+        payload = {
+            "model": self.embedding_model,
+            "input": texts,
+        }
+
+        with httpx.Client(timeout=self.embedding_timeout_s) as client:
+            resp = client.post(url, json=payload)
+            resp.raise_for_status()
+            data = resp.json()
+
+        items = data.get("data", [])
+        if len(items) != len(texts):
+            raise RuntimeError(f"Embedding response size mismatch: expected {len(texts)}, got {len(items)}")
+
+        # OpenAI format includes index field; sort to guarantee order.
+        ordered = sorted(items, key=lambda x: x.get("index", 0))
+        vectors = [row.get("embedding") for row in ordered]
+        if any(v is None for v in vectors):
+            raise RuntimeError("Embedding response is missing vectors")
+
+        return vectors
+
+    def _encode_with_local_fallback(self, texts: List[str]) -> List[List[float]]:
+        """Fallback only if remote endpoint is unavailable."""
+        if self._local_encoder is None:
+            from sentence_transformers import SentenceTransformer
+            self._local_encoder = SentenceTransformer("all-MiniLM-L6-v2")
+        return self._local_encoder.encode(texts).tolist()
+
+    def _encode(self, texts: List[str]) -> List[List[float]]:
+        try:
+            return self._encode_with_remote(texts)
+        except Exception as remote_exc:
+            print(f"⚠️ Remote embedding failed ({remote_exc}); falling back to local sentence-transformers.")
+            return self._encode_with_local_fallback(texts)
+
     def clear_repo(self, repo_id: str):
         self.table.delete(f"repo_id = '{repo_id}'")
 
@@ -54,7 +94,7 @@ class VectorDBService:
             return
 
         texts = [c.get("text", "") for c in chunks]
-        vectors = self.encoder.encode(texts).tolist()
+        vectors = self._encode(texts)
 
         records = []
         for chunk, vector in zip(chunks, vectors):
@@ -79,7 +119,7 @@ class VectorDBService:
             self.table.add(records)
 
     def search(self, query: str, repo_id: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
-        query_vector = self.encoder.encode(query).tolist()
+        query_vector = self._encode([query])[0]
         search_query = self.table.search(query_vector)
         if repo_id:
             search_query = search_query.where(f"repo_id = '{repo_id}'")
