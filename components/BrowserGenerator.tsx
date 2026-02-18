@@ -22,14 +22,14 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
     return (
         <div className="grid grid-cols-1 md:grid-cols-4 grid-rows-2 gap-5 h-[500px] mb-8 animate-in fade-in slide-in-from-bottom-4 duration-700">
             {/* 1. Main Stats (Large) */}
-            <div className="md:col-span-2 md:row-span-2 bg-gradient-to-br from-teal-700 to-cyan-700 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl group">
+            <div className="md:col-span-2 md:row-span-2 bg-gradient-to-br from-brand-700 to-brand-500 rounded-[2.5rem] p-8 text-white relative overflow-hidden shadow-xl group">
                 <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2 pointer-events-none"></div>
                 <div className="absolute bottom-0 left-0 w-48 h-48 bg-black/10 rounded-full blur-2xl translate-y-1/2 -translate-x-1/2 pointer-events-none"></div>
                 
                 <div className="flex justify-between items-start mb-12 relative z-10">
                     <div>
                         <h3 className="text-3xl font-black tracking-tight mb-1">Overview</h3>
-                        <p className="text-teal-100 font-medium opacity-80">Project Pulse</p>
+                        <p className="text-brand-100 font-medium opacity-80">Project Pulse</p>
                     </div>
                     <div className="p-3 bg-white/10 backdrop-blur-md rounded-2xl border border-white/20">
                        <ActivityGraph data={[40, 65, 50, 80, 55, 90, 70]} color="white" />
@@ -39,12 +39,12 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
                 <div className="grid grid-cols-2 gap-8 relative z-10">
                     {stats.map((stat: any, i: number) => (
                         <div key={i}>
-                            <p className="text-teal-100/80 text-xs font-bold uppercase tracking-widest mb-1">{stat.label}</p>
+                            <p className="text-brand-100/80 text-xs font-bold uppercase tracking-widest mb-1">{stat.label}</p>
                             <p className="text-4xl font-black">{stat.value}</p>
                         </div>
                     ))}
                     <div>
-                        <p className="text-teal-100/80 text-xs font-bold uppercase tracking-widest mb-1">Doc Progress</p>
+                        <p className="text-brand-100/80 text-xs font-bold uppercase tracking-widest mb-1">Doc Progress</p>
                         <div className="flex items-baseline gap-2">
                              <p className="text-4xl font-black">{Math.round(progress)}%</p>
                              <span className="text-sm opacity-60">complete</span>
@@ -96,7 +96,7 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
                     {docKeys.map(key => (
                         <div key={key} className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold border shrink-0 transition-all ${
                             docParts[key] 
-                            ? 'bg-white border-brand-200 text-teal-700 shadow-sm' 
+                            ? 'bg-white border-brand-200 text-brand-700 shadow-sm' 
                             : 'bg-slate-100 border-transparent text-slate-400 opacity-50'
                         }`}>
                             {docParts[key] ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" /> : <Loader2 className="w-3.5 h-3.5 animate-spin" />}
@@ -200,7 +200,7 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
                         <div className="flex items-center gap-3 mb-4 flex-wrap">
                             <span className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-900 text-white">{ep.method || 'METHOD'}</span>
                             <code className="text-sm font-mono text-slate-700">{ep.path || '/'}</code>
-                            {ep.source && <span className="text-[11px] text-teal-600 font-mono">{ep.source}</span>}
+                            {ep.source && <span className="text-[11px] text-brand-600 font-mono">{ep.source}</span>}
                         </div>
                         {ep.summary && <p className="text-sm text-slate-600 mb-4">{ep.summary}</p>}
 
@@ -374,8 +374,8 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                         onClick={() => setActiveTab(item.id as any)}
                         className={`w-full flex items-center gap-3 p-3 lg:px-5 lg:py-4 rounded-2xl transition-all duration-300 group relative ${
                             activeTab === item.id 
-                            ? 'bg-teal-600 text-white shadow-lg shadow-teal-500/30 scale-105' 
-                            : 'text-slate-500 hover:bg-slate-100 hover:text-teal-600'
+                            ? 'bg-brand-600 text-white shadow-lg shadow-brand-500/30 scale-105' 
+                            : 'text-slate-500 hover:bg-slate-100 hover:text-brand-600'
                         }`}
                     >
                         <item.icon className={`w-6 h-6 ${activeTab === item.id ? 'animate-pulse' : ''}`} />
@@ -391,7 +391,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                     onClick={() => { setActiveTab('docs'); setSelectedDocSection(sec.id); }}
                                     className={`w-full text-right px-3 py-2 rounded-xl text-xs font-bold transition-all ${
                                         activeTab === 'docs' && selectedDocSection === sec.id
-                                        ? 'bg-teal-50 text-teal-700 border border-teal-100'
+                                        ? 'bg-brand-50 text-brand-700 border border-brand-100'
                                         : 'text-slate-500 hover:bg-slate-50'
                                     }`}
                                 >
@@ -504,7 +504,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
         <button 
             onClick={handleStart}
             disabled={isProcessing}
-            className="w-full py-6 bg-gradient-to-r from-teal-600 to-cyan-600 text-white rounded-[2rem] font-bold text-lg shadow-2xl shadow-slate-900/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
+            className="w-full py-6 bg-gradient-to-r from-accent-orange to-orange-500 text-white rounded-[2rem] font-bold text-lg shadow-2xl shadow-slate-900/30 hover:scale-[1.02] active:scale-95 transition-all flex items-center justify-center gap-3 disabled:opacity-70 disabled:cursor-not-allowed"
         >
             {isProcessing ? (
                 <>
@@ -694,7 +694,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                              <p className="text-xs text-slate-400">چت پروژه‌محور با زمینه کد و مستندات</p>
                          </div>
                          <div className="flex gap-2">
-                             <span className="text-[10px] bg-brand-50 text-teal-600 px-3 py-1.5 rounded-full font-bold border border-brand-100">
+                             <span className="text-[10px] bg-brand-50 text-brand-600 px-3 py-1.5 rounded-full font-bold border border-brand-100">
                                  {config.model}
                              </span>
                          </div>

@@ -5,7 +5,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>دستیار مستندساز رایان هم‌افزا</title>
-    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%238b5cf6' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='4' width='16' height='16' rx='2'/%3E%3Crect x='9' y='9' width='6' height='6'/%3E%3Cpath d='M15 2v2'/%3E%3Cpath d='M15 20v2'/%3E%3Cpath d='M2 15h2'/%3E%3Cpath d='M2 9h2'/%3E%3Cpath d='M20 15h2'/%3E%3Cpath d='M20 9h2'/%3E%3Cpath d='M9 2v2'/%3E%3Cpath d='M9 20v2'/%3E%3C/svg%3E" />
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%232563eb' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='4' y='4' width='16' height='16' rx='2'/%3E%3Crect x='9' y='9' width='6' height='6'/%3E%3Cpath d='M15 2v2'/%3E%3Cpath d='M15 20v2'/%3E%3Cpath d='M2 15h2'/%3E%3Cpath d='M2 9h2'/%3E%3Cpath d='M20 15h2'/%3E%3Cpath d='M20 9h2'/%3E%3Cpath d='M9 2v2'/%3E%3Cpath d='M9 20v2'/%3E%3C/svg%3E" />
     <link href="https://fonts.googleapis.com/css2?family=Vazirmatn:wght@100..900&display=swap" rel="stylesheet">
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
@@ -14,21 +14,21 @@
           extend: {
             colors: {
               brand: {
-                50: '#f5f3ff',
-                100: '#ede9fe',
-                200: '#ddd6fe',
-                300: '#c4b5fd',
-                400: '#a78bfa',
-                500: '#8b5cf6', // Primary Purple
-                600: '#7c3aed', // Darker Purple
-                700: '#6d28d9',
-                800: '#5b21b6',
-                900: '#4c1d95',
+                50: '#eef5ff',
+                100: '#d9e9ff',
+                200: '#bcd8ff',
+                300: '#91bbff',
+                400: '#5f96ff',
+                500: '#2563eb',
+                600: '#1d4ed8',
+                700: '#1e40af',
+                800: '#1e3a8a',
+                900: '#172554',
               },
               accent: {
-                pink: '#F472B6',
-                orange: '#FB923C',
-                blue: '#38BDF8'
+                pink: '#60A5FA',
+                orange: '#F97316',
+                blue: '#14B8A6'
               }
             },
             fontFamily: {
@@ -36,8 +36,8 @@
             },
             boxShadow: {
               'soft': '0 4px 30px rgba(0, 0, 0, 0.03)',
-              'card': '0 0 0 1px rgba(255,255,255,0.5), 0 4px 12px rgba(0,0,0,0.05)',
-              'glow': '0 0 20px rgba(124, 58, 237, 0.25)',
+              'card': '0 0 0 1px rgba(219, 234, 254, 0.8), 0 6px 14px rgba(30, 64, 175, 0.08)',
+              'glow': '0 0 20px rgba(37, 99, 235, 0.25)',
               'glass': '0 8px 32px 0 rgba(31, 38, 135, 0.07)',
             },
             borderRadius: {
@@ -62,7 +62,7 @@
     <style>
       body {
         font-family: 'Vazirmatn', sans-serif;
-        background-color: #F0F4F8; /* Matches App.tsx */
+        background-color: #eef3f9;
       }
       
       /* V3 Pro Scrollbar */
@@ -78,7 +78,7 @@
         border-radius: 10px;
       }
       ::-webkit-scrollbar-thumb:hover {
-        background: #8b5cf6; /* Brand color on hover */
+        background: #2563eb;
       }
       
       /* Glass File Header */
@@ -106,7 +106,7 @@
       .file-icon {
         flex-shrink: 0;
         background: #fff;
-        color: #7c3aed;
+        color: #1d4ed8;
         width: 36px;
         height: 36px;
         display: flex;
@@ -114,7 +114,7 @@
         justify-content: center;
         border-radius: 12px;
         font-size: 18px;
-        box-shadow: 0 4px 10px rgba(124, 58, 237, 0.1);
+        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.15);
         border: 1px solid #f3f4f6;
       }
       .file-name {
@@ -149,12 +149,12 @@
         color: #1e293b;
       }
       .prose blockquote {
-        border-right: 4px solid #8b5cf6;
-        background: linear-gradient(to left, rgba(139, 92, 246, 0.05), transparent);
+        border-right: 4px solid #2563eb;
+        background: linear-gradient(to left, rgba(37, 99, 235, 0.06), transparent);
         padding: 1.5rem;
         border-radius: 0 1rem 1rem 0;
         font-style: normal;
-        color: #5b21b6;
+        color: #1e3a8a;
       }
       .prose table {
         border-radius: 1.5rem;
@@ -204,7 +204,7 @@
 }
 </script>
 </head>
-  <body class="text-slate-800 antialiased font-sans bg-[#F0F4F8]">
+  <body class="text-slate-800 antialiased font-sans bg-[#eef3f9]">
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

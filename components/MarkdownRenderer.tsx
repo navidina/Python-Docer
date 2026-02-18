@@ -70,7 +70,7 @@ const WikiLink: React.FC<WikiLinkProps> = ({ symbolName, children, knowledgeGrap
            )}
 
            <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-brand-500 to-cyan-500 rounded-xl blur opacity-10 group-hover:opacity-20 transition duration-1000 group-hover:duration-200"></div>
+                <div className="absolute -inset-1 bg-gradient-to-r from-brand-500 to-accent-blue rounded-xl blur opacity-10 group-hover:opacity-20 transition duration-1000 group-hover:duration-200"></div>
                 <pre className="relative text-xs font-mono text-slate-300 overflow-x-auto custom-scrollbar max-h-48 p-4 bg-black/50 rounded-xl border border-white/5">
                     {symbolEntry.codeSnippet || 'Loading snippet...'}
                 </pre>

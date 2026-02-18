@@ -178,7 +178,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, setConfig }) => {
         {/* 3. Persona Card */}
         <div className="bg-white rounded-[2.5rem] p-8 shadow-soft border border-white flex flex-col h-full">
             <div className="flex items-center gap-4 mb-8">
-                <div className="bg-purple-100 p-3 rounded-2xl text-purple-600 border border-purple-200">
+                <div className="bg-brand-100 p-3 rounded-2xl text-brand-600 border border-brand-200">
                     <UserCog className="w-6 h-6" />
                 </div>
                 <div>
@@ -192,7 +192,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, setConfig }) => {
                     value={config.persona}
                     onChange={(e) => setConfig({...config, persona: e.target.value})}
                     placeholder="دستورالعمل سیستم (System Prompt)..."
-                    className="w-full flex-1 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-slate-700 text-sm focus:ring-2 focus:ring-purple-200 outline-none transition-all resize-none min-h-[120px]"
+                    className="w-full flex-1 bg-slate-50 border border-slate-200 rounded-2xl p-4 text-slate-700 text-sm focus:ring-2 focus:ring-brand-200 outline-none transition-all resize-none min-h-[120px]"
                 />
                 <div className="flex gap-2">
                     <button 
@@ -203,7 +203,7 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, setConfig }) => {
                     </button>
                     <button 
                         onClick={() => setConfig({...config, persona: PERSONA_BLOCKCHAIN_ARCHITECT})}
-                        className="px-4 py-2 rounded-xl bg-purple-50 text-xs font-bold text-purple-600 border border-purple-100 hover:bg-purple-100 transition-colors flex items-center gap-1"
+                        className="px-4 py-2 rounded-xl bg-brand-50 text-xs font-bold text-brand-600 border border-brand-100 hover:bg-brand-100 transition-colors flex items-center gap-1"
                     >
                         <Briefcase className="w-3 h-3"/> معمار بلاکچین
                     </button>
