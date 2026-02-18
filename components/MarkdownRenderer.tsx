@@ -342,9 +342,10 @@ interface MarkdownRendererProps {
   isEditable?: boolean;
   onAskAI?: (text: string) => void;
   showTOC?: boolean;
+  onFileClick?: (path: string, line?: number) => void;
 }
 
-const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeGraph = {}, sectionId, onSave, isEditable = false, onAskAI, showTOC = false }) => {
+const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeGraph = {}, sectionId, onSave, isEditable = false, onAskAI, showTOC = false, onFileClick }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(content);
   const [selection, setSelection] = useState<{text: string, x: number, y: number} | null>(null);
@@ -506,11 +507,21 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
             ),
             a: ({href, children}) => {
                 if (href && href.startsWith('code://')) {
+                    const pathInfo = href.replace('code://', '');
+                    const [filePath, linePart] = pathInfo.split('#L');
+                    const line = linePart ? parseInt(linePart, 10) : undefined;
                     return (
-                        <a href={href} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100 font-mono text-xs" title={href}>
+                        <button
+                            onClick={(e) => {
+                                e.preventDefault();
+                                onFileClick?.(filePath, line);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100 font-mono text-xs hover:bg-brand-100 transition-colors cursor-pointer"
+                            title={`View source: ${filePath}`}
+                        >
                             {children}
                             <ExternalLink className="w-3 h-3" />
-                        </a>
+                        </button>
                     );
                 }
                 return <a href={href} className="text-brand-600 underline" target="_blank" rel="noreferrer">{children}</a>;

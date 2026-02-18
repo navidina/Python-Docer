@@ -101,6 +101,9 @@ class ChatRequest(BaseModel):
 class ReanalyzeRequest(BaseModel):
     file_path: str
 
+class GetFileRequest(BaseModel):
+    path: str
+
 def sanitize_mermaid(markdown_text: str) -> str:
     """Normalize Mermaid blocks to reduce syntax errors from LLM output noise."""
     block_pattern = re.compile(r'```mermaid\s*(.*?)```', re.DOTALL | re.IGNORECASE)
@@ -443,6 +446,32 @@ async def reanalyze_file_endpoint(request: ReanalyzeRequest):
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/get-file")
+async def get_file_content(request: GetFileRequest):
+    global active_analyzer
+    if not active_analyzer:
+        raise HTTPException(status_code=400, detail="Repository not loaded")
+
+    content = active_analyzer.file_map.get(request.path)
+
+    if content is None:
+        full_path = os.path.abspath(os.path.join(active_analyzer.repo_path, request.path))
+        repo_root = os.path.abspath(active_analyzer.repo_path)
+        if not full_path.startswith(repo_root + os.sep) and full_path != repo_root:
+            raise HTTPException(status_code=403, detail="Invalid file path")
+
+        if os.path.exists(full_path) and os.path.isfile(full_path):
+            try:
+                with open(full_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+            except Exception as e:
+                raise HTTPException(status_code=500, detail=f"Error reading file: {str(e)}")
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
+    return {"path": request.path, "content": content}
 
 if __name__ == "__main__":
     import uvicorn
