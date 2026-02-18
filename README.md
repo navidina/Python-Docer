@@ -91,6 +91,7 @@ Embedding source is configurable via environment variables on backend:
 By default, backend will NOT fallback to local `sentence-transformers` if LM Studio is unreachable; it fails fast with a clear error so setup issues are explicit.
 Set `EMBEDDING_ALLOW_LOCAL_FALLBACK=true` only if you intentionally want local fallback behavior.
 The backend now uses the same `base_url` and `embeddingModel` provided by app settings/request payload when calling embedding APIs.
+When embedding dimension differs from an existing LanceDB table schema, backend automatically routes writes/reads to a compatible dimension-specific table (e.g. `code_chunks_768d`) to avoid Arrow cast errors.
 
 ## Architecture Overview
 

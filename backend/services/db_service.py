@@ -20,12 +20,15 @@ class VectorDBService:
         self._local_encoder = None
 
         self.db = lancedb.connect(db_path)
+        self.base_table_name = table_name
         self.table_name = table_name
+        self.table = None
 
-        schema = pa.schema([
+    def _build_schema(self, vector_dim: int) -> pa.Schema:
+        return pa.schema([
             pa.field("id", pa.string()),
             pa.field("repo_id", pa.string()),
-            pa.field("vector", pa.list_(pa.float32(), 384)),
+            pa.field("vector", pa.list_(pa.float32(), vector_dim)),
             pa.field("text", pa.string()),
             pa.field("file_path", pa.string()),
             pa.field("start_line", pa.int32()),
@@ -34,8 +37,51 @@ class VectorDBService:
             pa.field("name", pa.string()),
         ])
 
-        self.table = self.db.create_table(self.table_name, schema=schema, exist_ok=True)
+    def _open_or_create_table(self, name: str, vector_dim: int):
+        names = set(self.db.table_names())
+        if name in names:
+            return self.db.open_table(name)
+        schema = self._build_schema(vector_dim)
+        return self.db.create_table(name, schema=schema, exist_ok=True)
 
+    def _ensure_table(self, vector_dim: int, create_if_missing: bool = True):
+        # Reuse already selected table when possible
+        if self.table is not None:
+            return self.table
+
+        names = set(self.db.table_names())
+        if self.base_table_name not in names:
+            if not create_if_missing:
+                return None
+            self.table_name = self.base_table_name
+            self.table = self._open_or_create_table(self.table_name, vector_dim)
+            return self.table
+
+        base_table = self.db.open_table(self.base_table_name)
+        vector_field = None
+        for field in base_table.schema:
+            if field.name == "vector":
+                vector_field = field
+                break
+
+        # If schema is unknown, fallback to base table.
+        if vector_field is None:
+            self.table_name = self.base_table_name
+            self.table = base_table
+            return self.table
+
+        vtype = vector_field.type
+        if pa.types.is_fixed_size_list(vtype) and getattr(vtype, "list_size", None) != vector_dim:
+            # Existing base table was created with another embedding dimension.
+            # Route to a dimension-specific table to avoid Arrow cast failures.
+            self.table_name = f"{self.base_table_name}_{vector_dim}d"
+            self.table = self._open_or_create_table(self.table_name, vector_dim)
+            return self.table
+
+        # Compatible schema (fixed-size same dim or variable-size list)
+        self.table_name = self.base_table_name
+        self.table = base_table
+        return self.table
 
     def configure_embedding(self, base_url: Optional[str] = None, model: Optional[str] = None):
         """Configure embedding provider at runtime (from API request settings)."""
@@ -105,7 +151,15 @@ class VectorDBService:
             ) from remote_exc
 
     def clear_repo(self, repo_id: str):
-        self.table.delete(f"repo_id = '{repo_id}'")
+        # clear from current table if already selected
+        if self.table is not None:
+            self.table.delete(f"repo_id = '{repo_id}'")
+            return
+
+        # otherwise clear from base + any dimension-specific tables
+        for name in self.db.table_names():
+            if name == self.base_table_name or name.startswith(f"{self.base_table_name}_"):
+                self.db.open_table(name).delete(f"repo_id = '{repo_id}'")
 
     def ingest_code_chunks(self, chunks: List[Dict[str, Any]], repo_id: str):
         if not chunks:
@@ -113,6 +167,14 @@ class VectorDBService:
 
         texts = [c.get("text", "") for c in chunks]
         vectors = self._encode(texts)
+        if not vectors:
+            return
+
+        vector_dim = len(vectors[0])
+        if any(len(v) != vector_dim for v in vectors):
+            raise RuntimeError("Embedding vectors have inconsistent dimensions within one batch.")
+
+        table = self._ensure_table(vector_dim=vector_dim, create_if_missing=True)
 
         records = []
         for chunk, vector in zip(chunks, vectors):
@@ -134,11 +196,15 @@ class VectorDBService:
             })
 
         if records:
-            self.table.add(records)
+            table.add(records)
 
     def search(self, query: str, repo_id: Optional[str] = None, limit: int = 5) -> List[Dict[str, Any]]:
         query_vector = self._encode([query])[0]
-        search_query = self.table.search(query_vector)
+        table = self._ensure_table(vector_dim=len(query_vector), create_if_missing=False)
+        if table is None:
+            return []
+
+        search_query = table.search(query_vector)
         if repo_id:
             search_query = search_query.where(f"repo_id = '{repo_id}'")
         results = search_query.limit(limit).to_pandas()
@@ -152,7 +218,17 @@ class VectorDBService:
         if repo_id:
             filter_expr += f" AND repo_id = '{repo_id}'"
 
-        result = self.table.search().where(filter_expr).limit(1).to_pandas()
-        if result.empty:
-            return None
-        return result.iloc[0]["text"]
+        candidate_names = [self.table_name] if self.table is not None else [self.base_table_name]
+        if self.table is None:
+            # check dim-specific tables as well
+            for name in self.db.table_names():
+                if name.startswith(f"{self.base_table_name}_"):
+                    candidate_names.append(name)
+
+        for name in dict.fromkeys(candidate_names):
+            if name not in set(self.db.table_names()):
+                continue
+            result = self.db.open_table(name).search().where(filter_expr).limit(1).to_pandas()
+            if not result.empty:
+                return result.iloc[0]["text"]
+        return None
