@@ -27,6 +27,7 @@ export const useRepoProcessor = () => {
   // Data from Python
   const [stats, setStats] = useState<any[]>([]);
   const [knowledgeGraph, setKnowledgeGraph] = useState<Record<string, CodeSymbol>>({});
+  const [codeHealth, setCodeHealth] = useState<any[]>([]);
   
   // Legacy/Unused states kept for compatibility
   const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]); 
@@ -71,6 +72,7 @@ export const useRepoProcessor = () => {
           // Update graph and stats with new data
           if (data.graph) setKnowledgeGraph(data.graph);
           if (data.stats) setStats(data.stats);
+          if (data.codeHealth) setCodeHealth(data.codeHealth);
           
           addLog(`File updated: ${path}`, 'success');
       } catch (e: any) {
@@ -88,6 +90,7 @@ export const useRepoProcessor = () => {
     setGeneratedDoc('');
     setStats([]);
     setKnowledgeGraph({});
+    setCodeHealth([]);
 
     // Determine effective path based on input type
     const effectivePath = inputType === 'local' ? repoPath : githubUrl;
@@ -130,6 +133,7 @@ export const useRepoProcessor = () => {
       // RESTORED FEATURES: Stats and Graph
       if (data.stats) setStats(data.stats);
       if (data.graph) setKnowledgeGraph(data.graph);
+      if (data.codeHealth) setCodeHealth(data.codeHealth);
 
       setHasContext(true);
       
@@ -162,6 +166,7 @@ export const useRepoProcessor = () => {
     hasContext,
     stats,
     knowledgeGraph,
+    codeHealth,
     docParts,
     businessRules,
     archViolations,

@@ -70,7 +70,7 @@ const WikiLink: React.FC<WikiLinkProps> = ({ symbolName, children, knowledgeGrap
            )}
 
            <div className="relative group">
-                <div className="absolute -inset-1 bg-gradient-to-r from-brand-500 to-cyan-500 rounded-xl blur opacity-10 group-hover:opacity-20 transition duration-1000 group-hover:duration-200"></div>
+                <div className="absolute -inset-1 bg-gradient-to-r from-brand-500 to-accent-blue rounded-xl blur opacity-10 group-hover:opacity-20 transition duration-1000 group-hover:duration-200"></div>
                 <pre className="relative text-xs font-mono text-slate-300 overflow-x-auto custom-scrollbar max-h-48 p-4 bg-black/50 rounded-xl border border-white/5">
                     {symbolEntry.codeSnippet || 'Loading snippet...'}
                 </pre>
@@ -139,7 +139,6 @@ const TableOfContents = ({ headers }: { headers: HeaderItem[] }) => {
 
 // --- COLLAPSIBLE SECTION ---
 const CollapsibleSection = ({ children, ...props }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
     
     let title = "جزئیات بیشتر";
     let content = children;
@@ -170,13 +169,73 @@ const CollapsibleSection = ({ children, ...props }: any) => {
     );
 };
 
+const ApiJsonBlock = ({ jsonText }: { jsonText: string }) => {
+    try {
+        const parsed = JSON.parse(jsonText);
+        const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
+        if (!endpoints.length) return null;
+
+        return (
+            <div className="my-6 border border-slate-200 rounded-[1.5rem] bg-white overflow-hidden">
+                <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+                    <h4 className="text-sm font-black text-slate-700">خلاصه تعاملی API</h4>
+                </div>
+                <div className="p-5 space-y-5" dir="ltr">
+                    {endpoints.map((ep: any, i: number) => (
+                        <div key={`${ep.method}-${ep.path}-${i}`} className="border border-slate-200 rounded-xl p-4">
+                            <div className="flex items-center gap-2 flex-wrap mb-3">
+                                <span className="px-2 py-1 text-[10px] rounded-md bg-slate-900 text-white font-bold">{ep.method || 'METHOD'}</span>
+                                <code className="text-xs text-slate-700">{ep.path || '/'}</code>
+                                {ep.source && <span className="text-[10px] text-brand-600 font-mono">{ep.source}</span>}
+                            </div>
+                            {ep.summary && <p className="text-xs text-slate-600 mb-3">{ep.summary}</p>}
+
+                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                                <div>
+                                    <p className="text-[11px] font-bold text-slate-700 mb-2">Request</p>
+                                    <table className="w-full text-[11px] border border-slate-200">
+                                        <thead className="bg-slate-50"><tr><th className="p-1.5 text-left">Field</th><th className="p-1.5 text-left">Type</th><th className="p-1.5 text-left">Required</th><th className="p-1.5 text-left">Desc</th></tr></thead>
+                                        <tbody>
+                                            {(ep.requestBody?.fields || []).map((f: any, fi: number) => (
+                                                <tr key={fi} className="border-t border-slate-100">
+                                                    <td className="p-1.5 font-mono">{f.name}</td><td className="p-1.5">{f.type}</td><td className="p-1.5">{String(!!f.required)}</td><td className="p-1.5">{f.desc || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                                <div>
+                                    <p className="text-[11px] font-bold text-slate-700 mb-2">Response</p>
+                                    <table className="w-full text-[11px] border border-slate-200">
+                                        <thead className="bg-slate-50"><tr><th className="p-1.5 text-left">Field</th><th className="p-1.5 text-left">Type</th><th className="p-1.5 text-left">Required</th><th className="p-1.5 text-left">Desc</th></tr></thead>
+                                        <tbody>
+                                            {(ep.response?.fields || []).map((f: any, fi: number) => (
+                                                <tr key={fi} className="border-t border-slate-100">
+                                                    <td className="p-1.5 font-mono">{f.name}</td><td className="p-1.5">{f.type}</td><td className="p-1.5">{String(!!f.required)}</td><td className="p-1.5">{f.desc || '-'}</td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+        );
+    } catch {
+        return null;
+    }
+};
+
 // --- CODE BLOCK RENDERER ---
 const CodeBlock = ({ inline, className, children, ...props }: any) => {
-    const [isOpen, setIsOpen] = useState(false);
     const [copied, setCopied] = useState(false);
     const codeText = String(children).replace(/\n$/, '');
     const match = /language-(\w+)/.exec(className || '');
-    const lang = match ? match[1] : '';
+    const lang = match ? match[1].toLowerCase() : '';
+    const shouldStartOpen = ['bash', 'sh', 'shell', 'markdown', 'md', 'yml', 'yaml'].includes(lang);
+    const [isOpen, setIsOpen] = useState(shouldStartOpen);
     const isMermaid = lang === 'mermaid';
     
     const isSingleLine = !codeText.includes('\n');
@@ -191,6 +250,18 @@ const CodeBlock = ({ inline, className, children, ...props }: any) => {
 
     if (!inline && isMermaid) {
         return <MermaidRenderer code={codeText} />;
+    }
+
+    const isJsonLike = lang === 'json' || codeText.trim().startsWith('{');
+    if (!inline && isJsonLike) {
+        try {
+            const parsed = JSON.parse(codeText);
+            if (Array.isArray(parsed?.endpoints)) {
+                return <ApiJsonBlock jsonText={codeText} />;
+            }
+        } catch {
+            // Fall back to normal code rendering for non-JSON code blocks.
+        }
     }
 
     if (inline) {
@@ -327,6 +398,10 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
     return () => document.removeEventListener('selectionchange', handleSelection);
   }, []);
 
+  const processedContent = content.replace(/\[\[([^:\]]+):([^:\]]+):(\d+)\]\]/g, (_m, name, filePath, line) => {
+    return `[${name}](code://${filePath}#L${line})`;
+  });
+
   const handleSave = () => {
     if (onSave && sectionId) {
       onSave(sectionId, editContent);
@@ -412,7 +487,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
                 return <h3 id={id} className="text-xl font-bold text-slate-700 mt-10 mb-4 flex items-center gap-3 scroll-mt-32"><div className="w-2.5 h-2.5 rounded-full bg-slate-300"></div>{children}</h3>;
             },
             p: ({children}: any) => (
-                <p className="text-slate-600 leading-8 mb-6 text-justify text-base">
+                <div className="text-slate-600 leading-8 mb-6 text-justify text-base">
                 {React.Children.map(children, child => {
                     if (typeof child === 'string' && knowledgeGraph) {
                         const parts = child.split(/(\s+|[,.;()])/); 
@@ -427,8 +502,19 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
                     }
                     return child;
                 })}
-                </p>
+                </div>
             ),
+            a: ({href, children}) => {
+                if (href && href.startsWith('code://')) {
+                    return (
+                        <a href={href} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100 font-mono text-xs" title={href}>
+                            {children}
+                            <ExternalLink className="w-3 h-3" />
+                        </a>
+                    );
+                }
+                return <a href={href} className="text-brand-600 underline" target="_blank" rel="noreferrer">{children}</a>;
+            },
             code: CodeBlock,
             details: CollapsibleSection,
             summary: ({children}: any) => null, 
@@ -439,7 +525,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
             )
             }}
         >
-            {content}
+            {processedContent}
         </ReactMarkdown>
       </div>
     </div>

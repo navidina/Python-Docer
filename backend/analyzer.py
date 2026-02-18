@@ -200,98 +200,366 @@ class RepoAnalyzer:
                     snippet = content[node.start_byte:min(node.end_byte, node.start_byte+300)]
                     
                     # Store symbol in graph
-                    self.graph.add_node(node_id, type='entity', name=text, kind=kind, filePath=rel_path, snippet=snippet)
+                    self.graph.add_node(node_id, type='entity', name=text, kind=kind, filePath=rel_path, snippet=snippet, line=node.start_point[0] + 1)
                     self.graph.add_edge(rel_path, node_id, relation='defines')
 
         except Exception as e:
             print(f"Error parsing {rel_path}: {e}")
 
+    def _extract_types_only(self, content: str) -> str:
+        lines = content.split('\n')
+        filtered = []
+        capture = False
+        brace_depth = 0
+
+        for line in lines:
+            stripped = line.strip()
+            if any(token in stripped for token in ['export interface', 'export type', 'export enum', 'declare interface', 'declare type', 'class ']):
+                capture = True
+                brace_depth = stripped.count('{') - stripped.count('}')
+                filtered.append(line)
+                continue
+
+            if capture:
+                filtered.append(line)
+                brace_depth += stripped.count('{') - stripped.count('}')
+                if brace_depth <= 0 and (stripped.endswith('}') or stripped.endswith('};') or stripped.endswith(';')):
+                    capture = False
+
+        return "\n".join(filtered) if filtered else content
+
+    def calculate_complexity(self, content: str) -> int:
+        score = 0
+        for keyword in ['if', 'else', 'for', 'while', 'switch', 'catch', '&&', '||']:
+            score += content.count(keyword + ' ') + content.count(keyword + '(')
+        return score
+
+    def get_code_health(self):
+        hotspots = []
+        for path, content in self.file_map.items():
+            score = self.calculate_complexity(content)
+            if score > 20:
+                hotspots.append({'path': path, 'score': score})
+        hotspots.sort(key=lambda x: x['score'], reverse=True)
+        return hotspots[:20]
+
+    def resolve_barrel_exports(self, file_path: str, content: str):
+        """
+        Follow barrel exports such as:
+        export * from './request.model'
+        export { A, B } from './dto'
+        """
+        resolved_files = []
+        barrel_pattern = re.compile(r'export\s+(?:\*|\{[^}]+\})\s+from\s+[\"\']([^\"\']+)[\"\']')
+
+        for import_path in barrel_pattern.findall(content):
+            real_path = self._resolve_import_path(file_path, import_path)
+            if real_path and real_path not in resolved_files:
+                resolved_files.append(real_path)
+
+        return resolved_files
+
     def get_context(self, module_type: str) -> str:
+        MAX_CHARS = 35000
         context = ""
 
-        # Helper: Recursive Dependency Injection
-        def get_recursive_dependencies(start_files, depth=1):
-            deps_content = ""
+        def add_to_context(header, content):
+            nonlocal context
+            if len(context) >= MAX_CHARS:
+                return False
+            chunk = f"\n--- {header} ---\n{content}\n"
+            if len(context) + len(chunk) > MAX_CHARS:
+                context += "\n\n... [Context Truncated Limit Reached] ...\n"
+                return False
+            context += chunk
+            return True
+
+        def extract_referenced_types(content):
+            candidates = set(re.findall(r'\bI[A-Z][A-Za-z0-9_]+\b', content))
+            candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]*(?:Request|Response|Dto|DTO|Model|Payload|Input|Output)\b', content))
+
+            # Capture explicit generic response/input types used in HTTP calls:
+            # http.get<T>(), http.post<T>(), ...
+            generic_chunks = re.findall(r'http\.(?:get|post|put|patch|delete)\s*<([^>]+)>', content, re.IGNORECASE)
+            for chunk in generic_chunks:
+                candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]+\b', chunk))
+
+            # Capture common return wrappers where response types may be implicit in service bodies.
+            wrapped_types = re.findall(r'\b(?:Promise|Observable)\s*<([^>]+)>', content)
+            for chunk in wrapped_types:
+                candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]+\b', chunk))
+
+            return {c for c in candidates if len(c) > 2}
+
+        def generate_type_name_variants(type_name):
+            variants = {type_name}
+            if type_name.startswith('I') and len(type_name) > 1 and type_name[1].isupper():
+                variants.add(type_name[1:])
+
+            kebab = re.sub(r'(?<!^)(?=[A-Z])', '-', type_name).lower()
+            variants.add(kebab)
+            variants.add(type_name.lower())
+
+            for suffix in ['request', 'response', 'dto', 'model', 'payload', 'input', 'output']:
+                variants.add(type_name.lower().replace(suffix, '').strip('-_'))
+
+            return {v for v in variants if v}
+
+        def find_type_definition_files(type_name, included_files):
+            hits = []
+            variants = generate_type_name_variants(type_name)
+            declaration_pattern = re.compile(rf"\b(?:export\s+)?(?:interface|type|enum|class)\s+{re.escape(type_name)}\b")
+
+            for path, content in self.file_map.items():
+                if path in included_files:
+                    continue
+                if not path.endswith(('.ts', '.tsx', '.d.ts', '.js')):
+                    continue
+
+                path_lower = path.lower()
+                declaration_hit = declaration_pattern.search(content) is not None
+                filename_hint_hit = any(v and v in path_lower for v in variants)
+                mention_hit = any(v and re.search(rf"\b{re.escape(v)}\b", content.lower()) for v in variants if len(v) > 2)
+
+                if declaration_hit or (filename_hint_hit and mention_hit):
+                    score = (3 if declaration_hit else 0) + (2 if filename_hint_hit else 0) + (1 if mention_hit else 0)
+                    hits.append((score, path))
+
+            hits.sort(key=lambda x: x[0], reverse=True)
+            ordered = []
+            seen = set()
+            for _, path in hits:
+                if path not in seen:
+                    ordered.append(path)
+                    seen.add(path)
+            return ordered
+
+        def find_type_via_barrel_chain(type_name, included_files, max_hops=4):
+            """
+            Fallback for hidden DTOs/interfaces behind nested index.ts barrel chains.
+            """
+            declaration_pattern = re.compile(rf"\b(?:export\s+)?(?:interface|type|enum|class)\s+{re.escape(type_name)}\b")
+            barrel_files = [p for p in self.file_map.keys() if p.endswith(('index.ts', 'index.tsx', 'index.js')) and p not in included_files]
+            visited = set()
+            queue = [(b, 0) for b in barrel_files]
+            matches = []
+
+            while queue:
+                current, hop = queue.pop(0)
+                if current in visited or hop > max_hops:
+                    continue
+                visited.add(current)
+
+                content = self.file_map.get(current, '')
+                targets = self.resolve_barrel_exports(current, content)
+                for target in targets:
+                    if target in visited or target not in self.file_map:
+                        continue
+
+                    target_content = self.file_map[target]
+                    if declaration_pattern.search(target_content):
+                        matches.append(target)
+                        continue
+
+                    if target.endswith(('index.ts', 'index.tsx', 'index.js')):
+                        queue.append((target, hop + 1))
+
+            # keep order deterministic and deduplicated
+            ordered = []
+            seen = set()
+            for m in matches:
+                if m not in seen and m not in included_files:
+                    ordered.append(m)
+                    seen.add(m)
+            return ordered
+
+        def get_deep_dependencies(start_files, max_depth=3):
+            collected = []
             visited = set(start_files)
-            queue = list(start_files)
-            
-            current_depth = 0
-            while queue and current_depth < depth:
-                next_level = []
-                for current_file in queue:
-                    if current_file in self.graph:
-                        # Find imports (graph successors)
-                        for neighbor in self.graph.successors(current_file):
-                            # Only process files, not internal symbols
-                            if '::' not in neighbor and neighbor not in visited:
-                                if neighbor in self.file_map:
-                                    # Filter: Only include Types/Interfaces/Models/DTOs
-                                    # This drastically reduces context noise while keeping essential data structures
-                                    if any(x in neighbor.lower() for x in ['type', 'interface', 'dto', 'model', 'entity', 'enum', 'config']):
-                                        deps_content += f"\n--- DEPENDENCY: {neighbor} ---\n{self.file_map[neighbor]}\n"
-                                        visited.add(neighbor)
-                                        next_level.append(neighbor)
-                queue = next_level
-                current_depth += 1
-            return deps_content
+            queue = [(f, 0) for f in start_files]
+
+            while queue:
+                current_file, depth = queue.pop(0)
+                if depth >= max_depth or current_file not in self.graph:
+                    continue
+
+                for neighbor in self.graph.successors(current_file):
+                    neighbor_path = neighbor.split('::')[0]
+                    if neighbor_path in visited or neighbor_path not in self.file_map:
+                        continue
+
+                    dep_content = self.file_map[neighbor_path]
+                    lower = neighbor_path.lower()
+                    looks_like_type_file = any(x in lower for x in ['dto', 'model', 'interface', 'type', 'entity', 'request', 'response'])
+                    barrel_targets = self.resolve_barrel_exports(neighbor_path, dep_content)
+                    is_barrel_file = neighbor_path.endswith(('index.ts', 'index.tsx', 'index.js')) or len(barrel_targets) > 0
+
+                    # Keep traversing barrel files even if they don't contain direct definitions.
+                    if not looks_like_type_file and not is_barrel_file:
+                        continue
+
+                    visited.add(neighbor_path)
+                    queue.append((neighbor_path, depth + 1))
+
+                    # Only include content-heavy chunks when likely useful as type containers.
+                    if looks_like_type_file or neighbor_path.endswith(('.d.ts', 'types.ts')):
+                        collected.append((neighbor_path, depth + 1, self._extract_types_only(dep_content)))
+
+                    # Expand barrel re-exports to reach hidden DTO/interface files.
+                    for barrel_target in barrel_targets:
+                        if barrel_target in visited or barrel_target not in self.file_map:
+                            continue
+                        visited.add(barrel_target)
+                        queue.append((barrel_target, depth + 1))
+                        collected.append((barrel_target, depth + 1, self._extract_types_only(self.file_map[barrel_target])))
+
+            return collected, visited
 
         if module_type == 'api_ref':
-            # 1. Find Services & Controllers
+            # API reference needs richer context for DTO/interface expansion.
+            MAX_CHARS = 100000
             primary_files = []
+            included_files = set()
+            referenced_types = set()
+
             for path, content in self.file_map.items():
-                if path.endswith(('.ts', '.js')) and ('service' in path.lower() or 'api' in path.lower() or 'controller' in path.lower()):
+                if path.endswith(('.ts', '.js')) and any(k in path.lower() for k in ['service', 'api', 'controller']) and '.spec.' not in path:
                     primary_files.append(path)
-                    context += f"\n--- Service/Controller: {path} ---\n{content}"
-            
-            # 2. Add Deep Dependencies (DTOs, Interfaces)
-            context += get_recursive_dependencies(primary_files, depth=2)
+                    referenced_types.update(extract_referenced_types(content))
+
+            # Priority 1: add model/type definitions first so they are never dropped
+            # by long service/controller files filling the context budget.
+            for type_name in sorted(referenced_types):
+                if len(context) >= MAX_CHARS:
+                    break
+
+                if type_name in {'Promise', 'Observable', 'string', 'number', 'boolean', 'void', 'any', 'unknown'}:
+                    continue
+
+                primary_hits = find_type_definition_files(type_name, included_files)
+                barrel_hits = find_type_via_barrel_chain(type_name, included_files)
+
+                for path in primary_hits + [b for b in barrel_hits if b not in primary_hits]:
+                    if add_to_context(f"Dependency Model ({type_name}): {path}", self._extract_types_only(self.file_map[path])):
+                        included_files.add(path)
+                    else:
+                        break
+
+            # Priority 2: then add graph-resolved dependencies (types only).
+            deep_deps, _ = get_deep_dependencies(primary_files, max_depth=3)
+            for dep_path, dep_depth, dep_content in deep_deps:
+                if len(context) >= MAX_CHARS:
+                    break
+                if dep_path in included_files:
+                    continue
+                if add_to_context(f"Dependency (D{dep_depth}): {dep_path}", dep_content):
+                    included_files.add(dep_path)
+                else:
+                    break
+
+            # Priority 3: add entry service/controller code for endpoint semantics.
+            for path in primary_files:
+                if len(context) >= MAX_CHARS:
+                    break
+                if add_to_context(f"Entry: {path}", self.file_map[path]):
+                    included_files.add(path)
+                else:
+                    break
+
+            # Final pass: include any newly referenced types discovered after deps.
+            referenced_after_deps = set(referenced_types)
+            for path in included_files:
+                referenced_after_deps.update(extract_referenced_types(self.file_map.get(path, '')))
+
+            for type_name in sorted(referenced_after_deps):
+                if len(context) >= MAX_CHARS:
+                    break
+
+                primary_hits = find_type_definition_files(type_name, included_files)
+                barrel_hits = find_type_via_barrel_chain(type_name, included_files)
+
+                for path in primary_hits + [b for b in barrel_hits if b not in primary_hits]:
+                    if add_to_context(f"Found via Search ({type_name}): {path}", self._extract_types_only(self.file_map[path])):
+                        included_files.add(path)
+                    else:
+                        break
 
         elif module_type == 'components':
-            # 1. Find React Components
-            primary_files = []
             for path, content in self.file_map.items():
-                if path.endswith(('.tsx', '.jsx')) and not '.test.' in path:
-                     if 'export' in content: 
-                         primary_files.append(path)
-                         context += f"\n--- Component: {path} ---\n{content}"
-            
-            # 2. Add Props & Types
-            context += get_recursive_dependencies(primary_files, depth=1)
+                if len(context) >= MAX_CHARS:
+                    break
+                if path.endswith('.tsx') and '.test.' not in path:
+                    component_name = path.split('/')[-1].replace('.tsx', '')
+                    if 'export default function' in content or f'const {component_name}' in content:
+                        if not add_to_context(f"Component: {path}", content):
+                            break
 
         elif module_type == 'erd':
-            # Find entities via graph attributes
             entity_nodes = [n for n, attr in self.graph.nodes(data=True) if attr.get('type') == 'entity']
-            files = set([n.split('::')[0] for n in entity_nodes])
-            for f in files:
-                if f in self.file_map: context += f"\n--- File: {f} ---\n{self.file_map[f]}"
+            files = sorted(list(set([n.split('::')[0] for n in entity_nodes])), key=lambda f: len(self.file_map.get(f, '')))
+            for entity_file in files:
+                if entity_file in self.file_map and not add_to_context(f"Entity File: {entity_file}", self.file_map[entity_file]):
+                    break
 
         elif module_type == 'root':
-            pkg = self.file_map.get('package.json') or self.file_map.get('requirements.txt', '')
-            context = f"Project Structure:\n{self.tree_structure}\n\nDependencies:\n{pkg}"
-            
-        elif module_type == 'sequence':
-             for path, content in self.file_map.items():
-                if any(k in path.lower() for k in ['controller', 'service', 'use', 'api']):
-                     context += f"\n--- File: {path} ---\n{content}"
-                     
-        elif module_type == 'arch':
-             context = self.tree_structure + "\n"
-             for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml']:
-                 if conf in self.file_map: context += f"\n--- {conf} ---\n{self.file_map[conf]}"
+            add_to_context("package.json", self.file_map.get('package.json', ''))
+            add_to_context("Project Structure", self.tree_structure)
 
-        return context[:50000] # Safe limit for context window
+        elif module_type == 'setup':
+            setup_files = [
+                'README.md',
+                'package.json',
+                'requirements.txt',
+                'pyproject.toml',
+                'Pipfile',
+                'docker-compose.yml',
+                'Dockerfile',
+                '.env.example',
+                '.env.sample',
+                'tsconfig.json',
+                'vite.config.ts'
+            ]
+            for file_name in setup_files:
+                if file_name in self.file_map:
+                    if not add_to_context(file_name, self.file_map[file_name]):
+                        break
+
+            # Include environment/config scripts if present.
+            for path, content in self.file_map.items():
+                lower = path.lower()
+                if any(k in lower for k in ['env', 'config', 'setup', 'install']) and path.endswith(('.md', '.txt', '.json', '.ts', '.js', '.yml', '.yaml')):
+                    if not add_to_context(f"Setup Related: {path}", content):
+                        break
+
+        elif module_type == 'sequence':
+            for path, content in self.file_map.items():
+                if any(k in path.lower() for k in ['controller', 'service', 'usecase', 'page.tsx']):
+                    if not add_to_context(f"Entry Point: {path}", content):
+                        break
+
+        elif module_type == 'arch':
+            context = self.tree_structure + "\n"
+            for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml', 'Dockerfile']:
+                if conf in self.file_map and not add_to_context(conf, self.file_map[conf]):
+                    break
+
+        return context
 
     def get_project_stats(self):
         stats = []
         lang_counts = {}
         total_lines = 0
+        total_complexity = 0
+
         for path, content in self.file_map.items():
             ext = os.path.splitext(path)[1]
             total_lines += len(content.split('\n'))
+            total_complexity += self.calculate_complexity(content)
             lang_counts[ext] = lang_counts.get(ext, 0) + 1
-        
+
         stats.append({"label": "Files", "value": str(len(self.file_map))})
         stats.append({"label": "LoC", "value": f"{total_lines:,}"})
+        stats.append({"label": "Complexity", "value": str(total_complexity)})
         if lang_counts:
             top_lang = max(lang_counts, key=lang_counts.get)
             stats.append({"label": "Main Lang", "value": top_lang})
@@ -313,6 +581,7 @@ class RepoAnalyzer:
                 'name': attrs.get('name', os.path.basename(node)),
                 'kind': attrs.get('kind', 'file' if attrs.get('type') == 'file' else 'variable'),
                 'filePath': attrs.get('filePath', node),
+                'line': attrs.get('line', 1),
                 'codeSnippet': attrs.get('snippet', ''),
                 'relationships': {
                     'calledBy': called_by, 

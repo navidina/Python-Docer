@@ -5,6 +5,7 @@ You are a Senior Technical Writer.
 TASK: Write a professional README.md for this project in Persian (Farsi).
 Start with a high-level executive summary using the package.json and file structure.
 Then list features, tech stack, and installation guide.
+For every function or class name you mention, append source reference as [[Name:filePath:line]].
 """,
 
     "setup": """
@@ -17,6 +18,7 @@ Include Prerequisites, Installation (npm/pip), and Environment Variables table.
 Role: Software Architect.
 TASK: Analyze the file structure. Describe the architectural patterns (MVC, Clean Arch, etc.) in Persian.
 Draw a 'graph TD' Mermaid diagram showing module interactions.
+For every function or class name you mention in prose, append [[Name:filePath:line]].
 """,
 
     "erd": """
@@ -44,6 +46,7 @@ Task: Document the Component Library in Persian.
 CRITICAL INSTRUCTION:
 Look for the `interface` or `type` defining the Props. It might be imported from another file (labeled as --- DEPENDENCY --- in the context).
 You MUST resolve the props and list them in a table.
+For every component name and imported type, append [[Name:filePath:line]].
 
 STRICT FORMAT:
 ## ComponentName
@@ -62,29 +65,41 @@ STRICT FORMAT:
 """,
 
     "api_ref": """
-Role: Senior Backend Developer.
-Task: Generate a comprehensive API Reference in Persian.
+Role: Senior Backend Architect.
+Task: Analyze the provided code and extract API definitions into a strict JSON format complying with a simplified OpenAPI 3.0 shape.
 
-CRITICAL INSTRUCTION - DATA MODELS:
-You are provided with Service files AND their dependency files (DTOs/Interfaces).
-When you list a Request Body or Response, you **MUST NOT** just write the interface name (e.g., `IUserRequest`).
-Instead, you **MUST expand** it into a detailed table showing its internal fields found in the dependency files.
+CONTEXT:
+You have controllers/services and related dependency files (DTOs/Interfaces/Types).
 
-STRICT FORMAT per Endpoint:
-### `METHOD /url`
-**عملکرد:** نام تابع (`functionName`)
-**توضیحات:** ...
-**مدل درخواست:** (`IUserRequest`)
-| فیلد | نوع | اختیاری؟ | توضیحات |
-|-------|------|-----------|-------------|
-| username | string | خیر | نام کاربری یکتا |
-| age | number | بله | سن کاربر |
+INSTRUCTIONS:
+1. Identify all HTTP endpoints (GET, POST, PUT, PATCH, DELETE).
+2. Resolve request/response types fully from dependency files.
+3. For responses, if return type is implicit, infer from HTTP generic calls such as http.get<T>(), http.post<T>(), Promise<T>, Observable<T>.
+4. If a field type references another interface/type, expand it inline recursively when possible.
+5. `source` MUST always be in exact format [[functionName:filePath:line]] (line is required).
+6. If a definition is missing, keep field type as "unknown" and set desc to "Definition not available in context".
+7. Output PURE JSON only (no Markdown, no backticks, no explanations).
 
-**مدل پاسخ:** (`IUserResponse`)
-| فیلد | نوع | توضیحات |
-|-------|------|-------------|
-| id | string | شناسه سیستمی |
-
----
+JSON STRUCTURE:
+{
+  "endpoints": [
+    {
+      "method": "POST",
+      "path": "/api/users",
+      "summary": "Create a user",
+      "source": "[[functionName:filePath:line]]",
+      "requestBody": {
+        "fields": [
+          {"name": "username", "type": "string", "required": true, "desc": "Unique handle"}
+        ]
+      },
+      "response": {
+        "fields": [
+          {"name": "id", "type": "string", "required": true, "desc": "Generated id"}
+        ]
+      }
+    }
+  ]
+}
 """
 }
