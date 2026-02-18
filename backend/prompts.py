@@ -74,9 +74,11 @@ You have controllers/services and related dependency files (DTOs/Interfaces/Type
 INSTRUCTIONS:
 1. Identify all HTTP endpoints (GET, POST, PUT, PATCH, DELETE).
 2. Resolve request/response types fully from dependency files.
-3. If a field type references another interface/type, expand it inline recursively when possible.
-4. If a definition is missing, keep field type as "unknown" and set desc to "Definition not available in context".
-5. Output PURE JSON only (no Markdown, no backticks, no explanations).
+3. For responses, if return type is implicit, infer from HTTP generic calls such as http.get<T>(), http.post<T>(), Promise<T>, Observable<T>.
+4. If a field type references another interface/type, expand it inline recursively when possible.
+5. `source` MUST always be in exact format [[functionName:filePath:line]] (line is required).
+6. If a definition is missing, keep field type as "unknown" and set desc to "Definition not available in context".
+7. Output PURE JSON only (no Markdown, no backticks, no explanations).
 
 JSON STRUCTURE:
 {

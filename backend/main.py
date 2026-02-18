@@ -1,4 +1,5 @@
 import re
+import json
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -29,6 +30,60 @@ app.add_middleware(
 # Store the active analyzer instance to allow /chat to access the analyzed repo
 active_analyzer: Optional[RepoAnalyzer] = None
 active_doc_parts: Dict[str, str] = {}
+
+
+def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> str:
+    """
+    Ensure api_ref `source` links follow [[name:file:line]] format.
+    If line is missing, resolve it from analyzer graph metadata when possible.
+    """
+    if not raw_text or not analyzer:
+        return raw_text
+
+    try:
+        payload = json.loads(raw_text)
+    except Exception:
+        return raw_text
+
+    endpoints = payload.get("endpoints")
+    if not isinstance(endpoints, list):
+        return raw_text
+
+    symbol_lines = {}
+    for node, attrs in analyzer.graph.nodes(data=True):
+        if attrs.get('type') != 'entity':
+            continue
+        name = attrs.get('name')
+        file_path = attrs.get('filePath')
+        line = attrs.get('line')
+        if isinstance(name, str) and isinstance(file_path, str) and isinstance(line, int):
+            symbol_lines[(name, file_path)] = line
+
+    source_pattern = re.compile(r'^\[\[([^:\]]+):([^:\]]+)(?::(\d+))?\]\]$')
+
+    for ep in endpoints:
+        if not isinstance(ep, dict):
+            continue
+        source = ep.get("source")
+        if not isinstance(source, str):
+            continue
+
+        m = source_pattern.match(source.strip())
+        if not m:
+            continue
+
+        name, file_path, line = m.group(1), m.group(2), m.group(3)
+        if line:
+            continue
+
+        resolved_line = symbol_lines.get((name, file_path))
+        if resolved_line is not None:
+            ep["source"] = f"[[{name}:{file_path}:{resolved_line}]]"
+
+    try:
+        return json.dumps(payload, ensure_ascii=False, indent=2)
+    except Exception:
+        return raw_text
 
 class GenerateRequest(BaseModel):
     repo_path: str
@@ -218,7 +273,10 @@ async def generate_docs(request: GenerateRequest):
                         
                     data = resp.json()
                     raw_text = data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else data.get('response', '')
-                    response_data["docParts"][module] = sanitize_mermaid(raw_text)
+                    normalized_text = sanitize_mermaid(raw_text)
+                    if module == 'api_ref':
+                        normalized_text = normalize_api_ref_links(normalized_text, analyzer)
+                    response_data["docParts"][module] = normalized_text
 
                 except Exception as e:
                     # Retry once with an aggressively smaller prompt for unstable local endpoints.
@@ -247,7 +305,10 @@ async def generate_docs(request: GenerateRequest):
                         if retry_resp.status_code == 200:
                             retry_data = retry_resp.json()
                             retry_text = retry_data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else retry_data.get('response', '')
-                            response_data["docParts"][module] = sanitize_mermaid(retry_text)
+                            normalized_retry_text = sanitize_mermaid(retry_text)
+                            if module == 'api_ref':
+                                normalized_retry_text = normalize_api_ref_links(normalized_retry_text, analyzer)
+                            response_data["docParts"][module] = normalized_retry_text
                         else:
                             response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {retry_resp.text}"
                     except Exception as retry_error:

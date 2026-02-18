@@ -277,6 +277,18 @@ class RepoAnalyzer:
         def extract_referenced_types(content):
             candidates = set(re.findall(r'\bI[A-Z][A-Za-z0-9_]+\b', content))
             candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]*(?:Request|Response|Dto|DTO|Model|Payload|Input|Output)\b', content))
+
+            # Capture explicit generic response/input types used in HTTP calls:
+            # http.get<T>(), http.post<T>(), ...
+            generic_chunks = re.findall(r'http\.(?:get|post|put|patch|delete)\s*<([^>]+)>', content, re.IGNORECASE)
+            for chunk in generic_chunks:
+                candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]+\b', chunk))
+
+            # Capture common return wrappers where response types may be implicit in service bodies.
+            wrapped_types = re.findall(r'\b(?:Promise|Observable)\s*<([^>]+)>', content)
+            for chunk in wrapped_types:
+                candidates.update(re.findall(r'\b[A-Z][A-Za-z0-9_]+\b', chunk))
+
             return {c for c in candidates if len(c) > 2}
 
         def generate_type_name_variants(type_name):
