@@ -80,23 +80,78 @@ class RepoAnalyzer:
                 return None, None
         return self.parsers[lang_name]['parser'], self.parsers[lang_name]['language']
 
+    def _strip_json_comments(self, raw: str) -> str:
+        """Strip // and /* */ comments while preserving string literals."""
+        result = []
+        in_string = False
+        string_char = ''
+        escape = False
+        i = 0
+        n = len(raw)
+
+        while i < n:
+            ch = raw[i]
+            nxt = raw[i + 1] if i + 1 < n else ''
+
+            if in_string:
+                result.append(ch)
+                if escape:
+                    escape = False
+                elif ch == '\\':
+                    escape = True
+                elif ch == string_char:
+                    in_string = False
+                i += 1
+                continue
+
+            if ch in ('"', "'"):
+                in_string = True
+                string_char = ch
+                result.append(ch)
+                i += 1
+                continue
+
+            if ch == '/' and nxt == '/':
+                i += 2
+                while i < n and raw[i] not in ('\n', '\r'):
+                    i += 1
+                continue
+
+            if ch == '/' and nxt == '*':
+                i += 2
+                while i + 1 < n and not (raw[i] == '*' and raw[i + 1] == '/'):
+                    i += 1
+                i += 2
+                continue
+
+            result.append(ch)
+            i += 1
+
+        return ''.join(result)
+
+    def _remove_trailing_commas(self, raw: str) -> str:
+        """Remove trailing commas before } or ] in a JSON-like string."""
+        return re.sub(r',\s*([}\]])', r'\1', raw)
+
     def _load_tsconfig(self):
-        """Parse tsconfig.json to understand path aliases (e.g. @/...)"""
+        """Parse tsconfig.json to understand path aliases (e.g. @/...)."""
         tsconfig_path = os.path.join(self.repo_path, 'tsconfig.json')
-        if os.path.exists(tsconfig_path):
-            try:
-                with open(tsconfig_path, 'r', encoding='utf-8') as f:
-                    # Remove comments (// or /* */) as standard JSON doesn't support them
-                    content = re.sub(r'//.*', '', f.read())
-                    content = re.sub(r'/\*.*?\*/', '', content, flags=re.DOTALL)
-                    data = json.loads(content)
-                    
-                    compiler_opts = data.get('compilerOptions', {})
-                    self.tsconfig_base_url = compiler_opts.get('baseUrl', '.')
-                    self.tsconfig_paths = compiler_opts.get('paths', {})
-                    # print(f"Loaded tsconfig paths: {list(self.tsconfig_paths.keys())}")
-            except Exception as e:
-                print(f"Error parsing tsconfig.json: {e}")
+        if not os.path.exists(tsconfig_path):
+            return
+
+        try:
+            with open(tsconfig_path, 'r', encoding='utf-8') as f:
+                raw_content = f.read()
+
+            content = self._strip_json_comments(raw_content)
+            content = self._remove_trailing_commas(content)
+            data = json.loads(content)
+
+            compiler_opts = data.get('compilerOptions', {})
+            self.tsconfig_base_url = compiler_opts.get('baseUrl', '.')
+            self.tsconfig_paths = compiler_opts.get('paths', {})
+        except Exception as e:
+            print(f"Error parsing tsconfig.json: {e}")
 
     def _resolve_import_path(self, current_file_rel_path: str, import_str: str) -> str:
         """Resolves an import string (e.g., '@/utils') to a real file path."""
