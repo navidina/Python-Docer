@@ -115,6 +115,27 @@ const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string;
     const firstParagraph = lines.find(l => !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('*') && !l.startsWith('|') && !l.startsWith('```')) || 'این بخش خلاصه‌ای از هدف، دامنه و ارزش پروژه را نمایش می‌دهد.';
     const bullets = lines.filter(l => l.startsWith('- ') || l.startsWith('* ')).slice(0, 6).map(l => l.replace(/^[-*]\s*/, ''));
 
+    const extractBulletParts = (bullet: string) => {
+        const sourceMatch = bullet.match(/\[\[[^\]]+\]\]$/);
+        const source = sourceMatch ? sourceMatch[0] : '';
+        const withoutSource = source ? bullet.replace(source, '').trim() : bullet;
+
+        const strongMatch = withoutSource.match(/^\*\*(.+?)\*\*[:：]?\s*(.*)$/);
+        if (strongMatch) {
+            return {
+                title: strongMatch[1].trim(),
+                description: strongMatch[2].trim(),
+                source
+            };
+        }
+
+        return {
+            title: withoutSource,
+            description: '',
+            source
+        };
+    };
+
     return (
         <div className="space-y-6">
             <div className="rounded-3xl border border-brand-100 bg-gradient-to-l from-brand-50/70 to-white p-6">
@@ -137,13 +158,35 @@ const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string;
             </div>
 
             {bullets.length > 0 && (
-                <div className="rounded-3xl border border-slate-100 bg-white p-6">
-                    <h3 className="text-lg font-extrabold text-slate-800 mb-4">نکات کلیدی پروژه</h3>
-                    <ul className="space-y-2">
-                        {bullets.map((b, i) => (
-                            <li key={i} className="text-slate-600 flex items-start gap-2"><span className="text-brand-500 mt-1">•</span><span>{b}</span></li>
-                        ))}
-                    </ul>
+                <div className="rounded-3xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/60 p-6">
+                    <div className="flex items-center justify-between mb-5">
+                        <h3 className="text-xl font-extrabold text-slate-800">نکات کلیدی پروژه</h3>
+                        <span className="text-[11px] text-brand-700 bg-brand-50 border border-brand-100 px-2.5 py-1 rounded-full font-bold">{bullets.length} نکته</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {bullets.map((b, i) => {
+                            const item = extractBulletParts(b);
+                            return (
+                                <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-brand-200 transition-all">
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-7 h-7 shrink-0 rounded-full bg-brand-600 text-white text-xs font-black flex items-center justify-center">{i + 1}</div>
+                                        <div className="min-w-0">
+                                            <p className="text-slate-800 font-extrabold leading-7 text-[15px]">{item.title}</p>
+                                            {item.description && (
+                                                <p className="text-slate-600 text-sm leading-7 mt-1">{item.description}</p>
+                                            )}
+                                            {item.source && (
+                                                <div className="mt-2 text-[11px] text-brand-700 font-mono bg-brand-50 border border-brand-100 px-2 py-1 rounded-lg inline-block">
+                                                    {item.source}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
