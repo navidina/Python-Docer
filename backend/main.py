@@ -34,6 +34,9 @@ active_doc_parts: Dict[str, str] = {}
 active_repo_id: Optional[str] = None
 db_service = VectorDBService()
 
+CACHE_FILE = os.path.join("data", "latest_docs.json")
+os.makedirs("data", exist_ok=True)
+
 
 def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> str:
     """
@@ -340,11 +343,59 @@ async def generate_docs(request: GenerateRequest, background_tasks: BackgroundTa
                         response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {str(retry_error)}"
 
         active_doc_parts = response_data.get("docParts", {})
+
+        cache_payload = {
+            **response_data,
+            "repoPath": work_dir,
+            "sourceRepoPath": request.repo_path,
+            "repoId": active_repo_id,
+        }
+        try:
+            with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(cache_payload, f, ensure_ascii=False)
+        except Exception as cache_exc:
+            print(f"Warning: failed to persist latest docs cache: {cache_exc}")
+
         return response_data
 
     finally:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
+
+
+@app.get("/latest-docs")
+async def get_latest_docs():
+    global active_analyzer, active_doc_parts, active_repo_id
+
+    if not os.path.exists(CACHE_FILE):
+        raise HTTPException(status_code=404, detail="No documentation generated yet")
+
+    try:
+        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Restore in-memory fast paths for chat/get-file after server restart.
+        if isinstance(data.get("docParts"), dict):
+            active_doc_parts = data["docParts"]
+
+        repo_id = data.get("repoId")
+        if isinstance(repo_id, str) and repo_id:
+            active_repo_id = repo_id
+
+        repo_path = data.get("repoPath")
+        if active_analyzer is None and isinstance(repo_path, str) and os.path.exists(repo_path):
+            restored = RepoAnalyzer(repo_path)
+            restored.analyze()
+            active_analyzer = restored
+            if not active_repo_id:
+                active_repo_id = restored.repo_id
+
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load latest docs: {exc}")
+
 
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):

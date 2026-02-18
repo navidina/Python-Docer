@@ -4,6 +4,7 @@ import { OllamaConfig, ProcessingLog, ProcessedFile, CodeSymbol, BusinessRule, A
 
 // Python Backend URL
 const API_URL = 'http://localhost:8000/generate-docs';
+const LATEST_DOCS_API_URL = 'http://localhost:8000/latest-docs';
 const PROCESSOR_SESSION_KEY = 'rayan_processor_session_v1';
 
 interface UseRepoProcessorProps {
@@ -45,30 +46,60 @@ export const useRepoProcessor = () => {
 
   const dismissError = () => setError(null);
 
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem(PROCESSOR_SESSION_KEY);
-      if (!raw) return;
+  const applyDocsPayload = (data: any, source: 'local' | 'backend-cache') => {
+    const parts = data?.docParts || {};
+    const statsData = Array.isArray(data?.stats) ? data.stats : [];
+    const graphData = data?.graph && typeof data.graph === 'object' ? data.graph : {};
+    const healthData = Array.isArray(data?.codeHealth) ? data.codeHealth : [];
 
-      const snapshot = JSON.parse(raw);
-      if (snapshot.generatedDoc) setGeneratedDoc(snapshot.generatedDoc);
-      if (snapshot.docParts && typeof snapshot.docParts === 'object') setDocParts(snapshot.docParts);
-      if (Array.isArray(snapshot.stats)) setStats(snapshot.stats);
-      if (snapshot.knowledgeGraph && typeof snapshot.knowledgeGraph === 'object') setKnowledgeGraph(snapshot.knowledgeGraph);
-      if (Array.isArray(snapshot.codeHealth)) setCodeHealth(snapshot.codeHealth);
-      if (snapshot.manualOverrides && typeof snapshot.manualOverrides === 'object') setManualOverrides(snapshot.manualOverrides);
+    setDocParts(parts);
+    setStats(statsData);
+    setKnowledgeGraph(graphData);
+    setCodeHealth(healthData);
 
-      const restoredHasContext = Boolean(snapshot.generatedDoc) || Boolean(snapshot.docParts && Object.keys(snapshot.docParts).length > 0);
-      setHasContext(restoredHasContext);
+    let fullMarkdown = '';
+    Object.keys(parts).forEach((k) => {
+      fullMarkdown += `# ${k.toUpperCase()}\n${parts[k]}\n\n`;
+    });
+    setGeneratedDoc(fullMarkdown);
 
-      if (restoredHasContext) {
-        addLog('Previous documentation session restored from local storage.', 'success');
-      }
-    } catch (restoreError) {
-      console.warn('Failed to restore processor session.', restoreError);
-    } finally {
-      setIsSessionHydrated(true);
+    const hasData = Object.keys(parts).length > 0 || fullMarkdown.length > 0;
+    setHasContext(hasData);
+
+    if (hasData) {
+      addLog(source === 'backend-cache'
+        ? 'Latest processed docs restored from backend cache.'
+        : 'Previous documentation session restored from local storage.', 'success');
     }
+  };
+
+  useEffect(() => {
+    const hydrate = async () => {
+      try {
+        const raw = localStorage.getItem(PROCESSOR_SESSION_KEY);
+        if (raw) {
+          const snapshot = JSON.parse(raw);
+          if (snapshot.manualOverrides && typeof snapshot.manualOverrides === 'object') setManualOverrides(snapshot.manualOverrides);
+          applyDocsPayload(snapshot, 'local');
+        }
+      } catch (restoreError) {
+        console.warn('Failed to restore processor session.', restoreError);
+      }
+
+      try {
+        const response = await fetch(LATEST_DOCS_API_URL);
+        if (response.ok) {
+          const serverData = await response.json();
+          applyDocsPayload(serverData, 'backend-cache');
+        }
+      } catch (latestError) {
+        console.log('No backend cache found or backend offline.', latestError);
+      } finally {
+        setIsSessionHydrated(true);
+      }
+    };
+
+    hydrate();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
