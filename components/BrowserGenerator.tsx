@@ -157,8 +157,39 @@ const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string;
 
 // Mini Component for Sparkline
 const ApiJsonRenderer = ({ content }: { content: string }) => {
+    const parseApiJson = (raw: string) => {
+        const direct = raw.trim();
+        const candidates: string[] = [direct];
+
+        const fenceMatch = direct.match(/```(?:json)?\s*([\s\S]*?)```/i);
+        if (fenceMatch?.[1]) candidates.push(fenceMatch[1].trim());
+
+        const firstObj = direct.indexOf('{');
+        const lastObj = direct.lastIndexOf('}');
+        if (firstObj >= 0 && lastObj > firstObj) {
+            candidates.push(direct.slice(firstObj, lastObj + 1));
+        }
+
+        // Some model outputs start from "endpoints": [...] without outer braces.
+        if (/^"?endpoints"?\s*:/i.test(direct)) {
+            candidates.push(`{${direct}}`);
+        }
+
+        for (const candidate of candidates) {
+            try {
+                return JSON.parse(candidate);
+            } catch {
+                // try next
+            }
+        }
+
+        return null;
+    };
+
+    const parsed = parseApiJson(content);
+    if (!parsed) return <MarkdownRenderer content={content} />;
+
     try {
-        const parsed = JSON.parse(content);
         const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
         if (!endpoints.length) return <MarkdownRenderer content={content} />;
 

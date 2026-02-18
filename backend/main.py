@@ -74,6 +74,7 @@ def sanitize_mermaid(markdown_text: str) -> str:
         first_norm = first.lower().replace(' ', '')
         is_sequence = first_norm.startswith('sequencediagram')
         is_graph = first_norm.startswith('graph') or first_norm.startswith('flowchart')
+        is_erd = first_norm.startswith('erdiagram')
 
         cleaned = [first]
         if is_sequence:
@@ -100,7 +101,27 @@ def sanitize_mermaid(markdown_text: str) -> str:
                 lower = s.lower()
                 if not s:
                     continue
+                # LLM often injects bracketed file tags that break Mermaid parse.
+                if s.startswith('[') and s.endswith(']'):
+                    cleaned.append(f"%% {line}")
+                    continue
                 if ('-->' in s or '---' in s or '-.->' in s or '==>' in s or any(lower.startswith(p) for p in valid_graph_prefix)):
+                    cleaned.append(line)
+                else:
+                    cleaned.append(f"%% {line}")
+        elif is_erd:
+            # ER diagram supports a narrower grammar. Comment-out noisy flowchart/class lines.
+            valid_erd_prefix = ('title', 'direction', '%%')
+            rel_markers = ('||--', '|o--', 'o|--', '}|--', '|{--', '}o--', 'o{--', '}|..', '|{..')
+            for line in lines[1:]:
+                s = line.strip()
+                lower = s.lower()
+                if not s:
+                    continue
+                if lower.startswith('classdef') or lower.startswith('class ') or lower.startswith('style '):
+                    cleaned.append(f"%% {line}")
+                    continue
+                if any(m in s for m in rel_markers) or '{' in s or '}' in s or any(lower.startswith(p) for p in valid_erd_prefix):
                     cleaned.append(line)
                 else:
                     cleaned.append(f"%% {line}")

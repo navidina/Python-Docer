@@ -9,6 +9,7 @@ const cleanCodeForRender = (rawCode: string): string => {
   code = code.replace(/\["([^"]*)"\]/g, (match, content) => `["${content.replace(/"/g, "'")}"]`);
   if (code.toLowerCase().includes('erdiagram')) {
       code = code.replace(/\bidentifying\b/gi, '');
+      code = code.replace(/^\s*(classDef|class|style)\b.*$/gim, '');
       code = code.replace(/([a-zA-Z0-9_]+)\s+([|o}]+--[|o{]+)\s+([a-zA-Z0-9_]+)\s+([a-zA-Z0-9_" ]+)/g, '$1 $2 $3 : "$4"');
   }
   if (code.toLowerCase().includes('classdiagram')) {
