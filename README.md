@@ -9,7 +9,7 @@ Rayan HamAfza Docs is a modern React application designed to automatically gener
 
 ## Features
 
-*   **Local Processing:** Runs entirely in your browser using local Ollama models. Your code never leaves your machine.
+*   **Centralized Processing:** Backend ingests repositories once and stores vectorized code chunks in LanceDB for organization-wide reuse.
 *   **Semantic Analysis:** parses code to understand classes, functions, and relationships.
 *   **Knowledge Graph:** Visualizes dependencies between files and symbols.
 *   **Architecture Analysis:** Detects architectural violations (e.g., UI directly accessing Database) and "Zombie" (dead) code.
@@ -73,13 +73,23 @@ Once processing is complete, navigate via the sidebar:
 *   **Diagrams**: View auto-generated system diagrams.
 *   **Chat**: Ask questions like "How does the authentication flow work?".
 
+
+### 4. Centralized Ingestion (LanceDB)
+
+When `/generate-docs` runs, backend now:
+1. Scans and analyzes the full repository.
+2. Builds semantic chunks (full files + entities).
+3. Embeds and stores chunks in LanceDB (`shared_data/lancedb`).
+
+Then `/chat` retrieves relevant chunks directly from LanceDB, and `/get-file` returns full file content from the knowledge base.
+
 ## Architecture Overview
 
 The application is built with:
 *   **Frontend**: React, TypeScript, Tailwind CSS.
 *   **State Management**: React Hooks (Custom `useRepoProcessor`).
 *   **Parsing**: Custom Regex-based tokenizer & Semantic Parser (`services/codeParser.ts`).
-*   **Vector DB**: In-memory `LocalVectorStore` for RAG operations.
+*   **Vector DB**: Centralized LanceDB (`backend/services/db_service.py`) for semantic retrieval and file serving.
 *   **LLM Integration**: Direct fetch calls to local Ollama API.
 
 ## Troubleshooting

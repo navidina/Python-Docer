@@ -7,6 +7,7 @@ from typing import Dict, List, Optional, Any
 import httpx
 from analyzer import RepoAnalyzer
 from prompts import PROMPTS
+from services.db_service import VectorDBService
 import os
 import shutil
 import tempfile
@@ -30,6 +31,8 @@ app.add_middleware(
 # Store the active analyzer instance to allow /chat to access the analyzed repo
 active_analyzer: Optional[RepoAnalyzer] = None
 active_doc_parts: Dict[str, str] = {}
+active_repo_id: Optional[str] = None
+db_service = VectorDBService()
 
 
 def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> str:
@@ -100,6 +103,9 @@ class ChatRequest(BaseModel):
 
 class ReanalyzeRequest(BaseModel):
     file_path: str
+
+class GetFileRequest(BaseModel):
+    path: str
 
 def sanitize_mermaid(markdown_text: str) -> str:
     """Normalize Mermaid blocks to reduce syntax errors from LLM output noise."""
@@ -204,7 +210,7 @@ def health_check():
 
 @app.post("/generate-docs")
 async def generate_docs(request: GenerateRequest):
-    global active_analyzer, active_doc_parts
+    global active_analyzer, active_doc_parts, active_repo_id
     results = {}
     work_dir = request.repo_path
     temp_dir = None
@@ -225,8 +231,9 @@ async def generate_docs(request: GenerateRequest):
         # 1. Analyze and Store Globally
         print(f"Analyzing repo: {work_dir}")
         analyzer = RepoAnalyzer(work_dir)
-        analyzer.analyze()
-        active_analyzer = analyzer # Save for Chat API
+        ingest_meta = analyzer.analyze_and_ingest(replace_existing=True)
+        active_analyzer = analyzer # Save for graph/stats operations
+        active_repo_id = ingest_meta.get("repo_id")
         
         # 2. Base Response with Stats and Graph
         response_data = {
@@ -325,18 +332,23 @@ async def generate_docs(request: GenerateRequest):
 async def chat_endpoint(request: ChatRequest):
     """
     RAG-enabled Chat Endpoint.
-    Uses analyzed code + generated documentation parts for deeper answers.
+    Uses centralized LanceDB retrieval + generated documentation parts.
     """
-    global active_analyzer, active_doc_parts
+    global active_doc_parts, active_repo_id
 
-    if not active_analyzer:
+    if not active_repo_id:
         raise HTTPException(status_code=400, detail="Repository not analyzed yet. Please run generation first.")
 
-    # 1) Code-context retrieval
-    relevant_files = active_analyzer.search_context(request.message, limit=6)
+    # 1) Code-context retrieval from LanceDB
+    relevant_chunks = db_service.search(request.message, repo_id=active_repo_id, limit=6)
     code_context = ""
-    for score, path, content in relevant_files:
-        code_context += f"\n--- FILE: {path} (score={score}) ---\n{content}\n"
+    for chunk in relevant_chunks:
+        score = chunk.get('_distance', 'n/a')
+        code_context += (
+            f"\n--- FILE: {chunk.get('file_path', 'unknown')} "
+            f"(line={chunk.get('start_line', 1)}, distance={score}) ---\n"
+            f"{chunk.get('text', '')[:2200]}\n"
+        )
 
     # 2) Documentation-context retrieval
     docs_source = request.doc_parts if request.doc_parts else active_doc_parts
@@ -355,7 +367,7 @@ async def chat_endpoint(request: ChatRequest):
             doc_context += f"\n--- DOC SECTION: {section} ---\n{text[:3500]}\n"
 
     if not code_context:
-        code_context = "No specific code files matched query keywords."
+        code_context = "No specific code chunks matched query keywords in LanceDB."
     if not doc_context:
         doc_context = "No documentation sections matched query keywords."
 
@@ -409,9 +421,23 @@ async def chat_endpoint(request: ChatRequest):
     except Exception as e:
         return {"response": f"Internal Error: {str(e)}"}
 
+
+@app.post("/get-file")
+async def get_file_endpoint(request: GetFileRequest):
+    global active_repo_id
+
+    if not active_repo_id:
+        raise HTTPException(status_code=400, detail="Repository not analyzed yet. Please run generation first.")
+
+    content = db_service.get_file_content(request.path, repo_id=active_repo_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found inside knowledge base")
+
+    return {"path": request.path, "content": content}
+
 @app.post("/reanalyze")
 async def reanalyze_file_endpoint(request: ReanalyzeRequest):
-    global active_analyzer
+    global active_analyzer, active_repo_id
     if not active_analyzer:
         raise HTTPException(status_code=400, detail="Repository not analyzed yet.")
     
@@ -429,17 +455,17 @@ async def reanalyze_file_endpoint(request: ReanalyzeRequest):
         # Update content in file_map
         active_analyzer.file_map[request.file_path] = content
         
-        # Re-run dependency parsing for this specific file
-        # Note: _parse_dependencies expects (rel_path, content, filename)
-        filename = os.path.basename(full_path)
-        active_analyzer._parse_dependencies(request.file_path, content, filename)
-        
+        # Re-ingest to central LanceDB for consistency after file change
+        ingest_meta = active_analyzer.analyze_and_ingest(replace_existing=True)
+        active_repo_id = ingest_meta.get("repo_id")
+
         # Return updated graph and stats
         return {
-            "status": "success", 
+            "status": "success",
             "graph": active_analyzer.export_knowledge_graph(),
             "stats": active_analyzer.get_project_stats(),
-            "codeHealth": active_analyzer.get_code_health()
+            "codeHealth": active_analyzer.get_code_health(),
+            "ingestion": ingest_meta,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

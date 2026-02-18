@@ -3,6 +3,8 @@ import json
 import re
 import networkx as nx
 
+from services.db_service import VectorDBService
+
 # Safe import for tree-sitter to prevent server crash
 try:
     from tree_sitter import Parser
@@ -54,7 +56,9 @@ class RepoAnalyzer:
         self.tree_structure = ""
         self.parsers = {} 
         self.symbol_table = {}
-        
+        self.db_service = VectorDBService()
+        self.repo_id = self.db_service.build_repo_id(repo_path)
+
         # TSConfig Alias Settings
         self.tsconfig_paths = {}
         self.tsconfig_base_url = "."
@@ -544,6 +548,55 @@ class RepoAnalyzer:
                     break
 
         return context
+
+    def _build_ingestion_chunks(self):
+        chunks = []
+
+        for path, content in self.file_map.items():
+            chunks.append({
+                "text": content,
+                "file_path": path,
+                "start_line": 1,
+                "end_line": len(content.splitlines()) or 1,
+                "type": "file_full",
+                "name": path,
+            })
+
+        for node_id, attrs in self.graph.nodes(data=True):
+            if attrs.get("type") != "entity":
+                continue
+
+            file_path = attrs.get("filePath")
+            name = attrs.get("name") or node_id
+            line = int(attrs.get("line", 1))
+            snippet = attrs.get("snippet", "")
+            kind = attrs.get("kind", "entity")
+
+            if not file_path or not snippet:
+                continue
+
+            chunks.append({
+                "text": snippet,
+                "file_path": file_path,
+                "start_line": line,
+                "end_line": line + max(1, snippet.count("\n")),
+                "type": kind,
+                "name": name,
+            })
+
+        return chunks
+
+    def analyze_and_ingest(self, replace_existing: bool = True):
+        self.analyze()
+        if replace_existing:
+            self.db_service.clear_repo(self.repo_id)
+
+        chunks = self._build_ingestion_chunks()
+        self.db_service.ingest_code_chunks(chunks, repo_id=self.repo_id)
+        return {
+            "repo_id": self.repo_id,
+            "chunks_ingested": len(chunks),
+        }
 
     def get_project_stats(self):
         stats = []
