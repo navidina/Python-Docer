@@ -586,8 +586,8 @@ class RepoAnalyzer:
 
         return chunks
 
-    def analyze_and_ingest(self, replace_existing: bool = True):
-        self.analyze()
+    def ingest_current_state(self, replace_existing: bool = True):
+        """Ingest currently analyzed graph/file_map into LanceDB."""
         if replace_existing:
             self.db_service.clear_repo(self.repo_id)
 
@@ -597,6 +597,10 @@ class RepoAnalyzer:
             "repo_id": self.repo_id,
             "chunks_ingested": len(chunks),
         }
+
+    def analyze_and_ingest(self, replace_existing: bool = True):
+        self.analyze()
+        return self.ingest_current_state(replace_existing=replace_existing)
 
     def get_project_stats(self):
         stats = []

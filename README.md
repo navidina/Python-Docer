@@ -92,6 +92,7 @@ By default, backend will NOT fallback to local `sentence-transformers` if LM Stu
 Set `EMBEDDING_ALLOW_LOCAL_FALLBACK=true` only if you intentionally want local fallback behavior.
 The backend now uses the same `base_url` and `embeddingModel` provided by app settings/request payload when calling embedding APIs.
 When embedding dimension differs from an existing LanceDB table schema, backend automatically routes writes/reads to a compatible dimension-specific table (e.g. `code_chunks_768d`) to avoid Arrow cast errors.
+Documentation generation remains graph-first (`RepoAnalyzer.get_context`) for structural precision, while LanceDB ingestion runs in background and is primarily used for chat retrieval.
 
 ## Architecture Overview
 

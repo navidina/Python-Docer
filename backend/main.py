@@ -1,6 +1,6 @@
 import re
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
@@ -108,6 +108,16 @@ class ReanalyzeRequest(BaseModel):
 class GetFileRequest(BaseModel):
     path: str
 
+
+
+def _ingest_repo_in_background(analyzer: RepoAnalyzer):
+    """Background LanceDB ingestion for chat retrieval; keeps doc generation graph-first."""
+    try:
+        ingest_meta = analyzer.ingest_current_state(replace_existing=True)
+        print(f"Ingestion completed in background: {ingest_meta}")
+    except Exception as exc:
+        print(f"Background ingestion failed: {exc}")
+
 def sanitize_mermaid(markdown_text: str) -> str:
     """Normalize Mermaid blocks to reduce syntax errors from LLM output noise."""
     block_pattern = re.compile(r'```mermaid\s*(.*?)```', re.DOTALL | re.IGNORECASE)
@@ -210,7 +220,7 @@ def health_check():
     return {"status": "ok", "message": "Rayan Backend is running"}
 
 @app.post("/generate-docs")
-async def generate_docs(request: GenerateRequest):
+async def generate_docs(request: GenerateRequest, background_tasks: BackgroundTasks):
     global active_analyzer, active_doc_parts, active_repo_id
     results = {}
     work_dir = request.repo_path
@@ -234,9 +244,14 @@ async def generate_docs(request: GenerateRequest):
         analyzer = RepoAnalyzer(work_dir)
         analyzer.db_service.configure_embedding(base_url=request.base_url, model=request.embedding_model)
         db_service.configure_embedding(base_url=request.base_url, model=request.embedding_model)
-        ingest_meta = analyzer.analyze_and_ingest(replace_existing=True)
-        active_analyzer = analyzer # Save for graph/stats operations
-        active_repo_id = ingest_meta.get("repo_id")
+
+        # Graph-first analysis for high-quality documentation generation.
+        analyzer.analyze()
+        active_analyzer = analyzer
+        active_repo_id = analyzer.repo_id
+
+        # LanceDB ingestion is done in background for chat usage.
+        background_tasks.add_task(_ingest_repo_in_background, analyzer)
         
         # 2. Base Response with Stats and Graph
         response_data = {
@@ -427,14 +442,17 @@ async def chat_endpoint(request: ChatRequest):
 
 @app.post("/get-file")
 async def get_file_endpoint(request: GetFileRequest):
-    global active_repo_id
+    global active_repo_id, active_analyzer
+
+    if active_analyzer and request.path in active_analyzer.file_map:
+        return {"path": request.path, "content": active_analyzer.file_map[request.path]}
 
     if not active_repo_id:
         raise HTTPException(status_code=400, detail="Repository not analyzed yet. Please run generation first.")
 
     content = db_service.get_file_content(request.path, repo_id=active_repo_id)
     if content is None:
-        raise HTTPException(status_code=404, detail="File not found inside knowledge base")
+        raise HTTPException(status_code=404, detail="File not found")
 
     return {"path": request.path, "content": content}
 
@@ -458,8 +476,9 @@ async def reanalyze_file_endpoint(request: ReanalyzeRequest):
         # Update content in file_map
         active_analyzer.file_map[request.file_path] = content
         
-        # Re-ingest to central LanceDB for consistency after file change
-        ingest_meta = active_analyzer.analyze_and_ingest(replace_existing=True)
+        # Rebuild analyzer graph for documentation quality, then refresh LanceDB index
+        active_analyzer.analyze()
+        ingest_meta = active_analyzer.ingest_current_state(replace_existing=True)
         active_repo_id = ingest_meta.get("repo_id")
 
         # Return updated graph and stats
