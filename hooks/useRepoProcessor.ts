@@ -19,33 +19,40 @@ interface UseRepoProcessorProps {
 export const useRepoProcessor = () => {
   const [logs, setLogs] = useState<ProcessingLog[]>([]);
   const [generatedDoc, setGeneratedDoc] = useState<string>('');
-  const [docParts, setDocParts] = useState<Record<string, string>>({}); 
+  const [docParts, setDocParts] = useState<Record<string, string>>({});
   const [isProcessing, setIsProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null); 
+  const [error, setError] = useState<string | null>(null);
   const [progress, setProgress] = useState(0);
   const [hasContext, setHasContext] = useState(false);
-  
+  const [isSessionHydrated, setIsSessionHydrated] = useState(false);
+
   // Data from Python
   const [stats, setStats] = useState<any[]>([]);
   const [knowledgeGraph, setKnowledgeGraph] = useState<Record<string, CodeSymbol>>({});
   const [codeHealth, setCodeHealth] = useState<any[]>([]);
-  
+
   // Legacy/Unused states kept for compatibility
-  const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]); 
-  const [archViolations, setArchViolations] = useState<ArchViolation[]>([]); 
-  const [zombieFiles, setZombieFiles] = useState<string[]>([]); 
+  const [businessRules, setBusinessRules] = useState<BusinessRule[]>([]);
+  const [archViolations, setArchViolations] = useState<ArchViolation[]>([]);
+  const [zombieFiles, setZombieFiles] = useState<string[]>([]);
   const [currentFile, setCurrentFile] = useState<string>('');
   const [fileMap, setFileMap] = useState<Record<string, ProcessedFile>>({});
   const [manualOverrides, setManualOverrides] = useState<Record<string, ManualOverride>>({});
+
+  const addLog = (message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
+    setLogs(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
+  };
+
+  const dismissError = () => setError(null);
 
   useEffect(() => {
     try {
       const raw = localStorage.getItem(PROCESSOR_SESSION_KEY);
       if (!raw) return;
-      const snapshot = JSON.parse(raw);
 
+      const snapshot = JSON.parse(raw);
       if (snapshot.generatedDoc) setGeneratedDoc(snapshot.generatedDoc);
-      if (snapshot.docParts) setDocParts(snapshot.docParts);
+      if (snapshot.docParts && typeof snapshot.docParts === 'object') setDocParts(snapshot.docParts);
       if (Array.isArray(snapshot.stats)) setStats(snapshot.stats);
       if (snapshot.knowledgeGraph && typeof snapshot.knowledgeGraph === 'object') setKnowledgeGraph(snapshot.knowledgeGraph);
       if (Array.isArray(snapshot.codeHealth)) setCodeHealth(snapshot.codeHealth);
@@ -57,13 +64,24 @@ export const useRepoProcessor = () => {
       if (restoredHasContext) {
         addLog('Previous documentation session restored from local storage.', 'success');
       }
-    } catch (error) {
-      console.warn('Failed to restore processor session.', error);
+    } catch (restoreError) {
+      console.warn('Failed to restore processor session.', restoreError);
+    } finally {
+      setIsSessionHydrated(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+
   useEffect(() => {
+    const derivedHasContext = Boolean(generatedDoc) || Object.keys(docParts || {}).length > 0;
+    setHasContext(derivedHasContext);
+  }, [generatedDoc, docParts]);
+
+  useEffect(() => {
+    // Important: prevent overwriting existing localStorage snapshot with initial empty state.
+    if (!isSessionHydrated) return;
+
     try {
       const payload = {
         generatedDoc,
@@ -74,53 +92,47 @@ export const useRepoProcessor = () => {
         manualOverrides,
       };
       localStorage.setItem(PROCESSOR_SESSION_KEY, JSON.stringify(payload));
-    } catch (error) {
-      console.warn('Failed to persist processor session.', error);
+    } catch (persistError) {
+      console.warn('Failed to persist processor session.', persistError);
     }
-  }, [generatedDoc, docParts, stats, knowledgeGraph, codeHealth, manualOverrides]);
-
-  const addLog = (message: string, type: 'info' | 'success' | 'error' | 'warning' = 'info') => {
-    setLogs(prev => [...prev, { timestamp: new Date().toISOString(), message, type }]);
-  };
-
-  const dismissError = () => setError(null);
+  }, [isSessionHydrated, generatedDoc, docParts, stats, knowledgeGraph, codeHealth, manualOverrides]);
 
   const saveManualOverride = (sectionId: string, content: string) => {
-      const newOverrides = { ...manualOverrides, [sectionId]: { sectionId, content, updatedAt: Date.now() } };
-      setManualOverrides(newOverrides);
-      setDocParts(prev => ({ ...prev, [sectionId]: content }));
-      addLog(`Manual edit saved for section: ${sectionId}`, 'success');
+    const newOverrides = { ...manualOverrides, [sectionId]: { sectionId, content, updatedAt: Date.now() } };
+    setManualOverrides(newOverrides);
+    setDocParts(prev => ({ ...prev, [sectionId]: content }));
+    addLog(`Manual edit saved for section: ${sectionId}`, 'success');
   };
 
   const importSession = (data: any) => {
-      console.log("Import not fully implemented for Python backend mode yet");
+    console.log("Import not fully implemented for Python backend mode yet");
   };
-  
+
   const reanalyzeFile = async (config: any, path: string) => {
-      addLog(`Re-analyzing file: ${path}...`, 'info');
-      try {
-          const response = await fetch('http://localhost:8000/reanalyze', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ file_path: path })
-          });
-          
-          if (!response.ok) {
-              const err = await response.text();
-              throw new Error(err || "Failed to re-analyze");
-          }
-          
-          const data = await response.json();
-          // Update graph and stats with new data
-          if (data.graph) setKnowledgeGraph(data.graph);
-          if (data.stats) setStats(data.stats);
-          if (data.codeHealth) setCodeHealth(data.codeHealth);
-          
-          addLog(`File updated: ${path}`, 'success');
-      } catch (e: any) {
-          console.error(e);
-          addLog(`Re-analysis failed: ${e.message}`, 'error');
+    addLog(`Re-analyzing file: ${path}...`, 'info');
+    try {
+      const response = await fetch('http://localhost:8000/reanalyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ file_path: path })
+      });
+
+      if (!response.ok) {
+        const err = await response.text();
+        throw new Error(err || "Failed to re-analyze");
       }
+
+      const data = await response.json();
+      // Update graph and stats with new data
+      if (data.graph) setKnowledgeGraph(data.graph);
+      if (data.stats) setStats(data.stats);
+      if (data.codeHealth) setCodeHealth(data.codeHealth);
+
+      addLog(`File updated: ${path}`, 'success');
+    } catch (e: any) {
+      console.error(e);
+      addLog(`Re-analysis failed: ${e.message}`, 'error');
+    }
   }
 
   const processRepository = async ({ config, inputType, repoPath, githubUrl, docLevels }: UseRepoProcessorProps) => {
@@ -138,11 +150,11 @@ export const useRepoProcessor = () => {
     const effectivePath = inputType === 'local' ? repoPath : githubUrl;
 
     if (!effectivePath) {
-        setError(inputType === 'local' 
-            ? "Please provide the absolute local path." 
-            : "Please provide a valid GitHub URL.");
-        setIsProcessing(false);
-        return;
+      setError(inputType === 'local'
+        ? "Please provide the absolute local path."
+        : "Please provide a valid GitHub URL.");
+      setIsProcessing(false);
+      return;
     }
 
     addLog(`Connecting to Python Backend at ${API_URL}...`, 'info');
@@ -163,37 +175,37 @@ export const useRepoProcessor = () => {
       });
 
       if (!response.ok) {
-          const errText = await response.text();
-          throw new Error(`Backend Error (${response.status}): ${errText}`);
+        const errText = await response.text();
+        throw new Error(`Backend Error (${response.status}): ${errText}`);
       }
 
       setProgress(60);
       const data = await response.json();
-      
+
       // Update UI with results
       setDocParts(data.docParts || {});
-      
+
       // RESTORED FEATURES: Stats and Graph
       if (data.stats) setStats(data.stats);
       if (data.graph) setKnowledgeGraph(data.graph);
       if (data.codeHealth) setCodeHealth(data.codeHealth);
 
       setHasContext(true);
-      
+
       // Generate a simple combined doc for download
       let fullMarkdown = "";
       Object.keys(data.docParts || {}).forEach(k => {
-          fullMarkdown += `# ${k.toUpperCase()}\n${data.docParts[k]}\n\n`;
+        fullMarkdown += `# ${k.toUpperCase()}\n${data.docParts[k]}\n\n`;
       });
-      
+
       setGeneratedDoc(fullMarkdown);
       setProgress(100);
       addLog("Generation Complete via Python Engine!", "success");
 
-    } catch (error: any) {
-      console.error(error);
-      setError(error.message || "Failed to connect to Python backend.");
-      addLog(`Error: ${error.message}`, 'error');
+    } catch (processError: any) {
+      console.error(processError);
+      setError(processError.message || "Failed to connect to Python backend.");
+      addLog(`Error: ${processError.message}`, 'error');
     } finally {
       setIsProcessing(false);
     }
@@ -220,6 +232,6 @@ export const useRepoProcessor = () => {
     processRepository,
     saveManualOverride,
     reanalyzeFile,
-    importSession 
+    importSession
   };
 };
