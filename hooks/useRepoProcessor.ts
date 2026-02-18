@@ -115,7 +115,8 @@ export const useRepoProcessor = () => {
           repo_path: effectivePath,
           selected_modules: docLevels,
           model_name: config.model,
-          base_url: config.baseUrl // Pass the configured URL (LM Studio/Ollama)
+          base_url: config.baseUrl, // Pass the configured URL (LM Studio/Ollama)
+          embedding_model: config.embeddingModel
         })
       });
 

@@ -36,6 +36,15 @@ class VectorDBService:
 
         self.table = self.db.create_table(self.table_name, schema=schema, exist_ok=True)
 
+
+    def configure_embedding(self, base_url: Optional[str] = None, model: Optional[str] = None):
+        """Configure embedding provider at runtime (from API request settings)."""
+        if base_url:
+            cleaned = base_url.rstrip("/")
+            self.embedding_base_url = cleaned[:-3] if cleaned.endswith("/v1") else cleaned
+        if model and model.strip():
+            self.embedding_model = model.strip()
+
     @staticmethod
     def build_repo_id(repo_path: str) -> str:
         normalized = os.path.abspath(repo_path).replace("\\", "/")

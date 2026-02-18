@@ -93,6 +93,7 @@ class GenerateRequest(BaseModel):
     selected_modules: Dict[str, bool]
     model_name: str
     base_url: str = "http://localhost:11434"
+    embedding_model: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
@@ -231,6 +232,8 @@ async def generate_docs(request: GenerateRequest):
         # 1. Analyze and Store Globally
         print(f"Analyzing repo: {work_dir}")
         analyzer = RepoAnalyzer(work_dir)
+        analyzer.db_service.configure_embedding(base_url=request.base_url, model=request.embedding_model)
+        db_service.configure_embedding(base_url=request.base_url, model=request.embedding_model)
         ingest_meta = analyzer.analyze_and_ingest(replace_existing=True)
         active_analyzer = analyzer # Save for graph/stats operations
         active_repo_id = ingest_meta.get("repo_id")
