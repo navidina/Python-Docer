@@ -8,6 +8,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import LiveVisualization from './LiveVisualization';
 import ProjectStructureVisualizer from './ProjectStructureVisualizer';
 import Playground from './Playground';
+import CodeViewerModal from './CodeViewerModal';
 
 interface BrowserGeneratorProps {
   config: OllamaConfig;
@@ -109,7 +110,7 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
     );
 };
 
-const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string; knowledgeGraph: any }) => {
+const ProjectOverviewRenderer = ({ content, knowledgeGraph, onFileClick }: { content: string; knowledgeGraph: any; onFileClick?: (path: string, line?: number) => void }) => {
     const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
     const title = lines.find(l => l.startsWith('#'))?.replace(/^#+\s*/, '') || 'معرفی پروژه';
     const firstParagraph = lines.find(l => !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('*') && !l.startsWith('|') && !l.startsWith('```')) || 'این بخش خلاصه‌ای از هدف، دامنه و ارزش پروژه را نمایش می‌دهد.';
@@ -149,14 +150,14 @@ const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string;
 
             <div className="rounded-3xl border border-slate-100 bg-white p-6">
                 <h3 className="text-lg font-extrabold text-slate-800 mb-4">جزئیات کامل</h3>
-                <MarkdownRenderer content={content} knowledgeGraph={knowledgeGraph} isEditable={true} sectionId="root" showTOC={true} />
+                <MarkdownRenderer content={content} knowledgeGraph={knowledgeGraph} isEditable={true} sectionId="root" showTOC={true} onFileClick={onFileClick} />
             </div>
         </div>
     );
 };
 
 // Mini Component for Sparkline
-const ApiJsonRenderer = ({ content }: { content: string }) => {
+const ApiJsonRenderer = ({ content, onFileClick }: { content: string; onFileClick?: (path: string, line?: number) => void }) => {
     const parseApiJson = (raw: string) => {
         const direct = raw.trim();
         const candidates: string[] = [direct];
@@ -187,11 +188,21 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
     };
 
     const parsed = parseApiJson(content);
-    if (!parsed) return <MarkdownRenderer content={content} />;
+    if (!parsed) return <MarkdownRenderer content={content} onFileClick={onFileClick} />;
 
     try {
         const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
-        if (!endpoints.length) return <MarkdownRenderer content={content} />;
+        if (!endpoints.length) return <MarkdownRenderer content={content} onFileClick={onFileClick} />;
+
+        const parseSourceLink = (source: string) => {
+            const match = source.match(/^\[\[([^:\]]+):([^:\]]+):(\d+)\]\]$/);
+            if (!match) return null;
+            return {
+                label: match[1],
+                path: match[2],
+                line: Number.parseInt(match[3], 10)
+            };
+        };
 
         return (
             <div className="space-y-6" dir="ltr">
@@ -200,7 +211,22 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
                         <div className="flex items-center gap-3 mb-4 flex-wrap">
                             <span className="px-2 py-1 rounded-lg text-xs font-bold bg-slate-900 text-white">{ep.method || 'METHOD'}</span>
                             <code className="text-sm font-mono text-slate-700">{ep.path || '/'}</code>
-                            {ep.source && <span className="text-[11px] text-brand-600 font-mono">{ep.source}</span>}
+                            {ep.source && (() => {
+                                const sourceInfo = parseSourceLink(ep.source);
+                                if (!sourceInfo) {
+                                    return <span className="text-[11px] text-brand-600 font-mono">{ep.source}</span>;
+                                }
+
+                                return (
+                                    <button
+                                        onClick={() => onFileClick?.(sourceInfo.path, sourceInfo.line)}
+                                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100 font-mono text-[11px] hover:bg-brand-100 transition-colors"
+                                        title={`View source: ${sourceInfo.path}`}
+                                    >
+                                        {sourceInfo.label}
+                                    </button>
+                                );
+                            })()}
                         </div>
                         {ep.summary && <p className="text-sm text-slate-600 mb-4">{ep.summary}</p>}
 
@@ -241,7 +267,7 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
             </div>
         );
     } catch {
-        return <MarkdownRenderer content={content} />;
+        return <MarkdownRenderer content={content} onFileClick={onFileClick} />;
     }
 };
 
@@ -273,6 +299,8 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
 
   const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code'>('dashboard');
   const [selectedDocSection, setSelectedDocSection] = useState<string>('root');
+  const [viewingFile, setViewingFile] = useState<{ path: string; content: string; line?: number } | null>(null);
+  const [isViewerOpen, setIsViewerOpen] = useState(false);
 
   const docSections = [
     { id: 'root', label: 'نمای کلی پروژه' },
@@ -353,6 +381,26 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+  };
+
+  const handleFileClick = async (path: string, line?: number) => {
+    try {
+      const response = await fetch('http://localhost:8000/get-file', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path })
+      });
+
+      if (!response.ok) {
+        throw new Error(`Failed to load file (${response.status})`);
+      }
+
+      const data = await response.json();
+      setViewingFile({ path: data.path, content: data.content, line });
+      setIsViewerOpen(true);
+    } catch (error) {
+      alert('Error fetching file content: ' + error);
+    }
   };
 
   // --- RENDER HELPERS ---
@@ -591,7 +639,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                  <FileText className="w-5 h-5 text-brand-500" /> پیش‌نمایش معرفی
                              </h3>
                              <div className="h-64 overflow-y-auto custom-scrollbar opacity-80 text-sm">
-                                 <MarkdownRenderer content={docParts['root'] || 'Generating...'} />
+                                 <MarkdownRenderer content={docParts['root'] || 'Generating...'} onFileClick={handleFileClick} />
                              </div>
                          </div>
                          <div className="bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-200">
@@ -624,9 +672,9 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                     <div className="bg-white rounded-[2rem] p-6 lg:p-10 shadow-sm border border-slate-200 min-h-[800px]">
                         {docParts[selectedDocSection] ? (
                             selectedDocSection === 'api_ref'
-                                ? <ApiJsonRenderer content={docParts[selectedDocSection]} />
+                                ? <ApiJsonRenderer content={docParts[selectedDocSection]} onFileClick={handleFileClick} />
                                 : selectedDocSection === 'root'
-                                    ? <ProjectOverviewRenderer content={docParts[selectedDocSection]} knowledgeGraph={knowledgeGraph} />
+                                    ? <ProjectOverviewRenderer content={docParts[selectedDocSection]} knowledgeGraph={knowledgeGraph} onFileClick={handleFileClick} />
                                     : <MarkdownRenderer 
                                         content={docParts[selectedDocSection]} 
                                         knowledgeGraph={knowledgeGraph} 
@@ -634,6 +682,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                         sectionId={selectedDocSection}
                                         onSave={saveManualOverride}
                                         showTOC={true}
+                                        onFileClick={handleFileClick}
                                     />
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-4">
@@ -664,7 +713,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                          <h3 className="font-bold text-lg capitalize">{key} Diagram</h3>
                                          <span className="text-xs bg-slate-100 px-3 py-1 rounded-full text-slate-500 font-mono">Mermaid</span>
                                      </div>
-                                     <MarkdownRenderer content={docParts[key]} />
+                                     <MarkdownRenderer content={docParts[key]} onFileClick={handleFileClick} />
                                 </div>
                             )
                         ))}
@@ -711,7 +760,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                      ? 'bg-white text-slate-700 rounded-tr-none border border-slate-100' 
                                      : 'bg-brand-50 text-brand-900 rounded-tl-none border border-brand-100'
                                  }`}>
-                                     <MarkdownRenderer content={msg.content} />
+                                     <MarkdownRenderer content={msg.content} onFileClick={handleFileClick} />
                                  </div>
                              </div>
                          ))}
@@ -754,6 +803,16 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             )}
             
         </div>
+
+        {viewingFile && (
+            <CodeViewerModal
+                isOpen={isViewerOpen}
+                onClose={() => setIsViewerOpen(false)}
+                fileName={viewingFile.path}
+                content={viewingFile.content}
+                highlightLine={viewingFile.line}
+            />
+        )}
     </div>
   );
 };
