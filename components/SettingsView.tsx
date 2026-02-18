@@ -6,6 +6,8 @@ import { checkOllamaConnection } from '../services/ollamaService';
 import { PERSONA_BLOCKCHAIN_ARCHITECT, DEFAULT_MODEL, DEFAULT_EMBEDDING_MODEL, OLLAMA_DEFAULT_URL } from '../utils/constants';
 import { deleteDB } from 'idb';
 
+const BACKEND_CLEAR_API = 'http://localhost:8000/clear-all-data';
+
 interface SettingsViewProps {
   config: OllamaConfig;
   setConfig: (config: OllamaConfig) => void;
@@ -36,21 +38,31 @@ const SettingsView: React.FC<SettingsViewProps> = ({ config, setConfig }) => {
   };
 
   const handleClearData = async () => {
-    if (window.confirm('آیا مطمئن هستید؟ تمام مستندات ذخیره شده، کش فایل‌ها و تغییرات دستی پاک خواهند شد.')) {
+    if (window.confirm('آیا مطمئن هستید؟ تمام مستندات ذخیره شده، کش فایل‌ها، دیتابیس برداری و تاریخچه چت پاک خواهند شد.')) {
         try {
+            // 1) Clear backend persisted data (LanceDB + latest docs cache)
+            const resp = await fetch(BACKEND_CLEAR_API, { method: 'POST' });
+            if (!resp.ok) {
+                const errText = await resp.text();
+                throw new Error(`Backend clear failed: ${errText}`);
+            }
+
+            // 2) Clear frontend caches/session
             localStorage.removeItem('rayan_docs_session');
             localStorage.removeItem('rayan_manual_overrides');
             localStorage.removeItem('rayan_chat_history');
             localStorage.removeItem('rayan_file_cache');
-            
+            localStorage.removeItem('rayan_processor_session_v1');
+            localStorage.removeItem('rayan_ollama_config');
+
             await deleteDB('rayan-meta-db');
             await deleteDB('rayan-vector-store');
-            
-            alert('تمامی داده‌ها با موفقیت پاک شدند. برای مشاهده تغییرات به داشبورد برگردید.');
+
+            alert('تمامی داده‌های فرانت‌اند و بک‌اند با موفقیت پاک شدند.');
             window.location.reload();
         } catch (e) {
             console.error(e);
-            alert('خطا در پاکسازی داده‌ها.');
+            alert('خطا در پاکسازی کامل داده‌ها. لطفاً اتصال بک‌اند را بررسی کنید.');
         }
     }
   };

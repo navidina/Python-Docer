@@ -1,5 +1,6 @@
 import hashlib
 import os
+import shutil
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -19,6 +20,7 @@ class VectorDBService:
         self.allow_local_fallback = os.getenv("EMBEDDING_ALLOW_LOCAL_FALLBACK", "false").lower() in {"1", "true", "yes", "on"}
         self._local_encoder = None
 
+        self.db_path = db_path
         self.db = lancedb.connect(db_path)
         self.base_table_name = table_name
         self.table_name = table_name
@@ -149,6 +151,34 @@ class VectorDBService:
                 "If you want local sentence-transformers fallback, set EMBEDDING_ALLOW_LOCAL_FALLBACK=true. "
                 f"Original error: {remote_exc}"
             ) from remote_exc
+
+
+    def clear_all_data(self):
+        """Drop all LanceDB tables and reset db connection."""
+        try:
+            table_names = list(self.db.table_names())
+            for name in table_names:
+                try:
+                    self.db.drop_table(name)
+                except Exception:
+                    # Fallback: delete all rows if drop is unavailable for this backend/version.
+                    try:
+                        tbl = self.db.open_table(name)
+                        tbl.delete("id IS NOT NULL")
+                    except Exception:
+                        pass
+        finally:
+            # Optional physical cleanup for local LanceDB folder
+            try:
+                if isinstance(self.db_path, str) and os.path.exists(self.db_path):
+                    shutil.rmtree(self.db_path, ignore_errors=True)
+            except Exception:
+                pass
+
+            os.makedirs(self.db_path, exist_ok=True)
+            self.db = lancedb.connect(self.db_path)
+            self.table = None
+            self.table_name = self.base_table_name
 
     def clear_repo(self, repo_id: str):
         # clear from current table if already selected

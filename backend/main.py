@@ -113,6 +113,9 @@ class ReanalyzeRequest(BaseModel):
 class GetFileRequest(BaseModel):
     path: str
 
+class ClearDataResponse(BaseModel):
+    status: str
+    message: str
 
 
 def _ingest_repo_in_background(analyzer: RepoAnalyzer):
@@ -397,6 +400,29 @@ async def get_latest_docs():
         raise
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to load latest docs: {exc}")
+
+
+
+@app.post("/clear-all-data", response_model=ClearDataResponse)
+async def clear_all_data_endpoint():
+    global active_analyzer, active_doc_parts, active_repo_id
+
+    try:
+        db_service.clear_all_data()
+
+        if os.path.exists(CACHE_FILE):
+            os.remove(CACHE_FILE)
+
+        active_analyzer = None
+        active_doc_parts = {}
+        active_repo_id = None
+
+        return {
+            "status": "success",
+            "message": "All backend cached docs and LanceDB data were deleted."
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Clear data failed: {exc}")
 
 
 @app.post("/chat")
