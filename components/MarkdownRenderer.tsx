@@ -487,7 +487,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
                 return <h3 id={id} className="text-xl font-bold text-slate-700 mt-10 mb-4 flex items-center gap-3 scroll-mt-32"><div className="w-2.5 h-2.5 rounded-full bg-slate-300"></div>{children}</h3>;
             },
             p: ({children}: any) => (
-                <p className="text-slate-600 leading-8 mb-6 text-justify text-base">
+                <div className="text-slate-600 leading-8 mb-6 text-justify text-base">
                 {React.Children.map(children, child => {
                     if (typeof child === 'string' && knowledgeGraph) {
                         const parts = child.split(/(\s+|[,.;()])/); 
@@ -502,7 +502,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, knowledgeG
                     }
                     return child;
                 })}
-                </p>
+                </div>
             ),
             a: ({href, children}) => {
                 if (href && href.startsWith('code://')) {

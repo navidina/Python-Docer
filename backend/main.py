@@ -13,6 +13,11 @@ from git import Repo
 
 app = FastAPI()
 
+SAFE_CONTEXT_LIMITS = {
+    "api_ref": 60000,
+    "components": 50000,
+}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -191,7 +196,9 @@ async def generate_docs(request: GenerateRequest):
                     response_data["docParts"][module] = "INFO: No relevant files found for this module."
                     continue
 
-                full_prompt = f"{PROMPTS[module]}\n\nCONTEXT:\n{context}"
+                safe_limit = SAFE_CONTEXT_LIMITS.get(module, 70000)
+                safe_context = context[:safe_limit]
+                full_prompt = f"{PROMPTS[module]}\n\nCONTEXT:\n{safe_context}"
                 
                 try:
                     payload = {}
@@ -214,7 +221,37 @@ async def generate_docs(request: GenerateRequest):
                     response_data["docParts"][module] = sanitize_mermaid(raw_text)
 
                 except Exception as e:
-                    response_data["docParts"][module] = f"Connection Error: {str(e)}"
+                    # Retry once with an aggressively smaller prompt for unstable local endpoints.
+                    retry_context = context[:30000]
+                    retry_prompt = f"{PROMPTS[module]}\n\nCONTEXT:\n{retry_context}"
+                    try:
+                        retry_payload = {}
+                        if is_openai:
+                            retry_payload = {
+                                "model": request.model_name,
+                                "messages": [
+                                    {"role": "system", "content": "You are a technical writer. OUTPUT CODE."},
+                                    {"role": "user", "content": retry_prompt}
+                                ],
+                                "temperature": 0.1
+                            }
+                        else:
+                            retry_payload = {
+                                "model": request.model_name,
+                                "prompt": retry_prompt,
+                                "stream": False,
+                                "options": {"num_ctx": 16384}
+                            }
+
+                        retry_resp = await client.post(api_url, json=retry_payload)
+                        if retry_resp.status_code == 200:
+                            retry_data = retry_resp.json()
+                            retry_text = retry_data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else retry_data.get('response', '')
+                            response_data["docParts"][module] = sanitize_mermaid(retry_text)
+                        else:
+                            response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {retry_resp.text}"
+                    except Exception as retry_error:
+                        response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {str(retry_error)}"
 
         active_doc_parts = response_data.get("docParts", {})
         return response_data
