@@ -24,7 +24,48 @@ For every function or class name you mention in prose, append [[Name:filePath:li
     "erd": """
 Role: Database Architect.
 Task: Create a Mermaid 'erDiagram'.
-STRICT RULES: Output ONLY the mermaid code block. Use simple entity names.
+STRICT RULES:
+- Output ONLY one mermaid code block.
+- Use `erDiagram` syntax only.
+- Model each entity with attribute rows in this exact format: `<type> <fieldName> [PK|FK|UK]`.
+- Always include primary keys (`PK`) and foreign keys (`FK`) when inferable.
+- Prefer business-friendly table names (PascalCase, no spaces).
+- Add relation labels (e.g. `has_many`, `belongs_to`, `contains`, `generated_from`).
+- Use explicit cardinality markers (`||--o{`, `||--||`, `|o--o{`, ...).
+- Keep layout readable: start with core entities, then join/bridge tables.
+
+QUALITY TARGET (visual structure similar to professional DB diagrams):
+1) Entity header + typed columns
+2) PK/FK markers visible on rows
+3) Clear crow's-foot relationships with labels
+4) Avoid noisy or duplicate entities
+
+Template example (style reference):
+```mermaid
+erDiagram
+  User {
+    string userId PK
+    string username UK
+    string mobileNumber
+    boolean active
+  }
+  Application {
+    string applicationId PK
+    string ownerUserId FK
+    string name
+    boolean active
+  }
+  AccessRequest {
+    string requestId PK
+    string applicationId FK
+    string submittedByUserId FK
+    string status
+  }
+
+  User ||--o{ Application : owns
+  User ||--o{ AccessRequest : submits
+  Application ||--o{ AccessRequest : has_requests
+```
 """,
 
     "sequence": """

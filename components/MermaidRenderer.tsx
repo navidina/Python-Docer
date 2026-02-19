@@ -18,6 +18,45 @@ const cleanCodeForRender = (rawCode: string): string => {
   return code;
 };
 
+const ERD_SVG_STYLE = `
+.er.entityBox {
+  fill: #f8fafc !important;
+  stroke: #cbd5e1 !important;
+  stroke-width: 1.2px !important;
+}
+.er.attributeBoxOdd,
+.er.attributeBoxEven {
+  fill: #ffffff !important;
+  stroke: #e2e8f0 !important;
+}
+.er.entityLabel {
+  fill: #0f172a !important;
+  font-weight: 700 !important;
+}
+.er.attributeBoxEven text,
+.er.attributeBoxOdd text,
+.er.relationshipLabelBox text,
+.er.relationshipText {
+  fill: #334155 !important;
+  font-size: 12px !important;
+}
+.er.relationshipLabelBox {
+  fill: #ffffff !important;
+  stroke: #cbd5e1 !important;
+}
+.er.relationshipLine,
+.er.line,
+.er.marker {
+  stroke: #64748b !important;
+}
+`;
+
+const injectInlineStyle = (svg: string, style: string): string => {
+  if (!svg || !style) return svg;
+  if (svg.includes(style.trim())) return svg;
+  return svg.replace(/<svg([^>]*)>/, `<svg$1><style>${style}</style>`);
+};
+
 const MermaidRenderer = React.memo(({ code }: { code: string }) => {
   const [svg, setSvg] = useState('');
   const [isError, setIsError] = useState(false);
@@ -135,14 +174,16 @@ const MermaidRenderer = React.memo(({ code }: { code: string }) => {
       const existing = document.getElementById(renderId.current);
       if (existing) existing.remove();
 
+      const isErd = /^\s*erDiagram\b/i.test(cleanCode);
       const renderPromise = mermaid.render(renderId.current, cleanCode);
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), 8000));
 
       // @ts-ignore
       const { svg } = await Promise.race([renderPromise, timeoutPromise]);
+      const finalSvg = isErd ? injectInlineStyle(svg, ERD_SVG_STYLE) : svg;
       
       if(mountedRef.current) {
-          setSvg(svg);
+          setSvg(finalSvg);
           setIsRendering(false);
       }
     } catch (error: any) {
@@ -157,8 +198,9 @@ const MermaidRenderer = React.memo(({ code }: { code: string }) => {
                     .replace(/:::[a-zA-Z0-9_\-]+/g, '')
                     .replace(/^classDef\s+.*$/gm, '')
                     .replace(/^style\s+.*$/gm, '');
+                  const isErdRetry = /^\s*erDiagram\b/i.test(simplified);
                   const { svg: svg2 } = await mermaid.render(renderId.current + '-retry', simplified);
-                  setSvg(svg2);
+                  setSvg(isErdRetry ? injectInlineStyle(svg2, ERD_SVG_STYLE) : svg2);
                } catch(e) {
                   setIsError(true);
                   setErrorMsg('Failed after retry');
