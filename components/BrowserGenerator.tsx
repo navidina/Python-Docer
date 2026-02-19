@@ -8,6 +8,7 @@ import MarkdownRenderer from './MarkdownRenderer';
 import LiveVisualization from './LiveVisualization';
 import ProjectStructureVisualizer from './ProjectStructureVisualizer';
 import Playground from './Playground';
+import ApiExplorerView from './ApiExplorerView';
 
 interface BrowserGeneratorProps {
   config: OllamaConfig;
@@ -316,7 +317,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
     smart_audit: false
   });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code' | 'api_explorer'>('dashboard');
   const [selectedDocSection, setSelectedDocSection] = useState<string>('root');
 
   const docSections = [
@@ -415,6 +416,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                 { id: 'diagrams', icon: GitMerge, label: 'دیاگرام‌ها' },
                 { id: 'code', icon: Code, label: 'تحلیل کد' },
                 { id: 'chat', icon: MessageSquare, label: 'چت هوشمند' },
+                { id: 'api_explorer', icon: ServerCog, label: 'کاوشگر API' },
             ].map(item => (
                 <div key={item.id}>
                     <button
@@ -730,6 +732,13 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                          <h2 className="text-2xl font-black text-slate-800 mb-6">Playground</h2>
                          <Playground />
                     </div>
+                </div>
+            )}
+
+
+            {activeTab === 'api_explorer' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500"> 
+                    <ApiExplorerView content={docParts['api_ref'] || ''} />
                 </div>
             )}
 
