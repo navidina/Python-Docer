@@ -578,6 +578,78 @@ class RepoAnalyzer:
 
         return context
 
+    def extract_api_endpoints_catalog(self) -> list[dict]:
+        """
+        Deterministic endpoint extraction to improve coverage beyond LLM-only detection.
+        Captures both server-side routes and client-side API calls across common stacks.
+        """
+        endpoint_map = {}
+
+        route_patterns = [
+            # Express/Fastify/Koa routers: app.get('/x'), router.post('/x')
+            (re.compile(r"\b(?:app|router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            # NestJS decorators: @Get('/x')
+            (re.compile(r"@\s*(Get|Post|Put|Patch|Delete)\s*\(\s*['\"]([^'\"]*)['\"]?\s*\)", re.IGNORECASE), "server"),
+            # FastAPI/Flask style decorators: @app.get('/x'), @router.post('/x')
+            (re.compile(r"@\s*(?:app|router|bp)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            # Spring mappings in Java: @GetMapping('/x'), @RequestMapping(value='/x', method=RequestMethod.GET)
+            (re.compile(r"@\s*(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping)\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            (re.compile(r"@\s*RequestMapping\s*\([^\)]*method\s*=\s*RequestMethod\.(GET|POST|PUT|PATCH|DELETE)[^\)]*value\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            # Client HTTP helpers: axios.get('/x'), http.post('/x'), apiClient.patch('/x')
+            (re.compile(r"\b(?:axios|http|api|apiClient|client|request)\s*\.\s*(get|post|put|patch|delete)\s*(?:<[^>]+>)?\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "client"),
+            # fetch('/x', { method: 'POST' }) (method optional -> GET)
+            (re.compile(r"\bfetch\s*\(\s*['\"]([^'\"]+)['\"](?:\s*,\s*\{[^\}]*?method\s*:\s*['\"](GET|POST|PUT|PATCH|DELETE)['\"])?", re.IGNORECASE | re.DOTALL), "client_fetch"),
+        ]
+
+        allowed_ext = ('.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs')
+
+        for path, content in self.file_map.items():
+            if not path.endswith(allowed_ext):
+                continue
+
+            lines = content.splitlines()
+            for line_no, line in enumerate(lines, start=1):
+                for pattern, kind in route_patterns:
+                    for m in pattern.finditer(line):
+                        if kind == 'client_fetch':
+                            endpoint_path = (m.group(1) or '').strip()
+                            method = (m.group(2) or 'GET').upper()
+                        elif 'Mapping' in (m.group(1) or ''):
+                            method = m.group(1).replace('Mapping', '').upper()
+                            endpoint_path = (m.group(2) or '').strip()
+                        else:
+                            method = (m.group(1) or 'GET').upper()
+                            endpoint_path = (m.group(2) or '').strip()
+
+                        if not endpoint_path or endpoint_path.startswith('${'):
+                            continue
+
+                        summary = line.strip()
+                        source = f"[[{method.lower()}_{line_no}:{path}:{line_no}]]"
+                        key = (method, endpoint_path)
+
+                        existing = endpoint_map.get(key)
+                        if existing is None:
+                            endpoint_map[key] = {
+                                "method": method,
+                                "path": endpoint_path,
+                                "summary": summary[:220],
+                                "source": source,
+                                "requestBody": {"fields": []},
+                                "response": {"fields": []},
+                                "requestExample": {},
+                                "responseExample": {},
+                                "errorResponses": []
+                            }
+                        else:
+                            # Prefer server-side source when duplicate exists.
+                            is_serverish = any(token in path.lower() for token in ['controller', 'route', 'router', 'endpoint', 'api'])
+                            if is_serverish:
+                                existing["source"] = source
+                                existing["summary"] = summary[:220]
+
+        return sorted(endpoint_map.values(), key=lambda e: (e.get("path", ""), e.get("method", "")))
+
     def _build_ingestion_chunks(self):
         chunks = []
 

@@ -51,11 +51,12 @@ def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> 
     try:
         payload = json.loads(raw_text)
     except Exception:
-        return raw_text
+        payload = {"endpoints": []}
 
     endpoints = payload.get("endpoints")
     if not isinstance(endpoints, list):
-        return raw_text
+        endpoints = []
+        payload["endpoints"] = endpoints
 
     symbol_lines = {}
     for node, attrs in analyzer.graph.nodes(data=True):
@@ -87,6 +88,27 @@ def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> 
         resolved_line = symbol_lines.get((name, file_path))
         if resolved_line is not None:
             ep["source"] = f"[[{name}:{file_path}:{resolved_line}]]"
+
+    # Coverage enhancer: merge deterministic endpoints extracted from full codebase scan.
+    deterministic = analyzer.extract_api_endpoints_catalog()
+    existing_keys = set()
+    for ep in endpoints:
+        if not isinstance(ep, dict):
+            continue
+        key = ((ep.get("method") or "").upper(), ep.get("path") or "")
+        if key[1]:
+            existing_keys.add(key)
+
+    for ep in deterministic:
+        key = ((ep.get("method") or "").upper(), ep.get("path") or "")
+        if not key[1] or key in existing_keys:
+            continue
+        endpoints.append(ep)
+        existing_keys.add(key)
+
+    # Stable ordering for UI explorer lists.
+    endpoints.sort(key=lambda e: (str(e.get("path", "")), str(e.get("method", ""))))
+    payload["endpoints"] = endpoints
 
     try:
         return json.dumps(payload, ensure_ascii=False, indent=2)
