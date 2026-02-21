@@ -250,16 +250,24 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onFileClic
           th: ({ children }) => <th className="bg-slate-50 text-slate-700 text-sm font-bold p-3 border-b border-slate-200">{children}</th>,
           td: ({ children }) => <td className="text-sm text-slate-700 p-3 border-b border-slate-100">{children}</td>,
           a: ({ href, children }) => {
-            if (href && href.startsWith('code://')) {
-              const pathInfo = href.replace('code://', '');
-              const [filePath, linePart] = pathInfo.split('#L');
-              const line = linePart ? parseInt(linePart, 10) : undefined;
+            const rawHref = href || '';
+            const isCodeScheme = rawHref.startsWith('code://');
+            const pathInfo = isCodeScheme ? rawHref.replace('code://', '') : rawHref;
+            const [filePath, linePart] = pathInfo.split('#L');
+            const line = linePart ? parseInt(linePart, 10) : undefined;
 
+            const looksLikeLocalFile = !!filePath && (
+              /\.(ts|tsx|js|jsx|py|java|go|rs|json|md|yml|yaml)$/i.test(filePath) ||
+              filePath.includes('/') ||
+              filePath.includes('\\')
+            ) && !/^https?:\/\//i.test(filePath);
+
+            if ((isCodeScheme || looksLikeLocalFile) && onFileClick) {
               return (
                 <button
                   onClick={(e) => {
                     e.preventDefault();
-                    if (onFileClick) onFileClick(filePath, line);
+                    onFileClick(filePath, Number.isNaN(line) ? undefined : line);
                   }}
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-brand-600 bg-brand-50 border border-brand-100 text-xs font-mono hover:bg-brand-100 cursor-pointer mx-1"
                   title={`View source: ${filePath}`}
@@ -269,6 +277,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onFileClic
                 </button>
               );
             }
+
             return (
               <a href={href} className="text-blue-600 underline" target="_blank" rel="noreferrer">
                 {children}
