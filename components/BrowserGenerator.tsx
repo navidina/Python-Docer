@@ -453,16 +453,6 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             ))}
         </div>
 
-        <div className="mt-auto px-6 hidden lg:block">
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">وضعیت سیستم</p>
-                <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${hasContext ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                    <span className="text-xs font-bold text-slate-600">{hasContext ? 'آماده' : 'غیرفعال'}</span>
-                </div>
-                {hasContext && <p className="text-[10px] text-slate-400 mt-1">{Object.keys(knowledgeGraph).length} Symbols</p>}
-            </div>
-        </div>
     </div>
   );
 
