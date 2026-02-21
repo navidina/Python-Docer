@@ -98,6 +98,39 @@ const ApiJsonBlock = ({ jsonText, onFileClick }: { jsonText: string; onFileClick
   }
 };
 
+
+const normalizeCommentedMarkdown = (value: string): string => {
+  return value
+    .split('\n')
+    .map((line) => line.replace(/^\s*\/\/\s?/, ''))
+    .join('\n')
+    .trim();
+};
+
+const looksLikeMarkdownContent = (value: string): boolean => {
+  const text = value.trim();
+  if (!text) return false;
+
+  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  if (!lines.length) return false;
+
+  const markdownSignals = lines.filter((line) =>
+    /^#{1,6}\s/.test(line) ||
+    /^[-*+]\s/.test(line) ||
+    /^\d+\.\s/.test(line) ||
+    /^\|.*\|$/.test(line) ||
+    /^\*\*.+\*\*/.test(line) ||
+    /^```/.test(line)
+  ).length;
+
+  const commentSignals = lines.filter((line) => /^\/\//.test(line)).length;
+  const codeSignals = lines.filter((line) =>
+    /(import\s+.+from|export\s+|const\s+\w+\s*=|function\s+\w+|class\s+\w+|=>|<\w+[^>]*>)/.test(line)
+  ).length;
+
+  return (markdownSignals >= 2 || commentSignals >= Math.max(2, Math.floor(lines.length * 0.5))) && codeSignals <= Math.max(1, Math.floor(lines.length * 0.2));
+};
+
 const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) => {
   const codeText = String(children).replace(/\n$/, '');
   const match = /language-(\w+)/.exec(className || '');
@@ -123,6 +156,26 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
   // Many model outputs wrap prose in ```markdown ... ```; make that visually light instead of dark code.
   if (!inline && (lang === 'markdown' || lang === 'md')) {
     return <div className="my-5 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 whitespace-pre-wrap">{codeText}</div>;
+  }
+
+  // Some responses incorrectly label markdown prose as TS/TSX and even prefix lines with // comments.
+  const codeLikeLang = ['ts', 'tsx', 'typescript', 'js', 'jsx', 'javascript'];
+  if (!inline && codeLikeLang.includes(lang) && looksLikeMarkdownContent(codeText)) {
+    const repaired = normalizeCommentedMarkdown(codeText);
+    return (
+      <div className="my-5 p-5 bg-white border border-slate-200 rounded-xl" dir="rtl">
+        <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
+          h1: ({ children }) => <h1 className="text-2xl font-black text-slate-800 mb-3">{children}</h1>,
+          h2: ({ children }) => <h2 className="text-xl font-extrabold text-slate-800 mb-2 mt-4">{children}</h2>,
+          p: ({ children }) => <p className="text-slate-700 mb-3 leading-8">{children}</p>,
+          ul: ({ children }) => <ul className="list-disc pr-6 space-y-1.5 mb-3">{children}</ul>,
+          li: ({ children }) => <li className="text-slate-700">{children}</li>,
+          table: ({ children }) => <div className="overflow-x-auto border border-slate-200 rounded-lg my-3"><table className="min-w-full bg-white">{children}</table></div>,
+          th: ({ children }) => <th className="bg-slate-50 p-2 text-xs font-bold border-b border-slate-200">{children}</th>,
+          td: ({ children }) => <td className="p-2 text-xs border-b border-slate-100">{children}</td>,
+        }}>{repaired}</ReactMarkdown>
+      </div>
+    );
   }
 
   // Compact single-line snippets (package names, ids, short commands) should not consume full-width cards.
