@@ -260,6 +260,7 @@ async def _generate_api_ref_batched(
     models_reference = analyzer.get_context("components")
     if len(models_reference) > 60000:
         models_reference = models_reference[:60000]
+    print(f"Loaded Models Reference Length: {len(models_reference)} characters")
 
     all_endpoints: List[Dict[str, Any]] = []
     total_batches = (len(api_files) + API_REF_BATCH_SIZE - 1) // API_REF_BATCH_SIZE
@@ -271,17 +272,40 @@ async def _generate_api_ref_batched(
         if not batch_context:
             continue
 
-        batch_prompt = f"""{base_prompt}
+        batch_prompt = f"""
+[SYSTEM]
+You are a strict API extraction bot. Extract ALL API endpoints found ONLY in the provided API Files.
 
-STRICT MODE (batch {batch_num}/{total_batches}):
-- Extract endpoints ONLY from files listed in this batch.
-- Return PURE JSON object with top-level key "endpoints".
-- Never include markdown fences or explanations.
+CRITICAL RULES FOR DATA MODELS:
+1. DO NOT output interface or class names (like "IUserRequest" or "Dto") as types.
+2. You MUST search for the exact interface definition inside the [MODELS REFERENCE] section.
+3. EXPAND the interface into its actual underlying properties (e.g., username: string, isActive: boolean).
+4. If a field is truly missing from the context, write "primitive/unknown", but NEVER write "Definition not available".
+5. Return PURE JSON object with top-level key "endpoints". Never include markdown fences or explanations.
 
-MODELS REFERENCE:
+OUTPUT SCHEMA:
+{{
+  "endpoints": [
+    {{
+      "method": "POST",
+      "path": "/url",
+      "summary": "...",
+      "source": "[[funcName:path/to/file.ts:line]]",
+      "requestBody": {{"fields": [{{"name": "username", "type": "string", "required": true, "desc": "..."}}]}},
+      "response": {{"fields": []}}
+    }}
+  ]
+}}
+
+BATCH INFO: {batch_num}/{total_batches}
+
+[BASE INSTRUCTIONS]
+{base_prompt}
+
+[MODELS REFERENCE]
 {models_reference}
 
-BATCH FILES:
+[API FILES TO PROCESS]
 {batch_context}
 """
 
