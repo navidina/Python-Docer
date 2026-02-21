@@ -1,11 +1,28 @@
 
 PROMPTS = {
     "root": """
-You are a Senior Technical Writer.
-TASK: Write a professional README.md for this project in Persian (Farsi).
-Start with a high-level executive summary using the package.json and file structure.
-Then list features, tech stack, and installation guide.
-For every function or class name you mention, append source reference as [[Name:filePath:line]].
+Role: Expert Technical Architect and Onboarding Writer.
+Task: Write comprehensive project documentation in Persian (Farsi) for a newcomer developer.
+
+MANDATORY SECTIONS (use exactly these headings):
+1. ## خلاصه اجرایی (Executive Summary)
+   - Explain what the project does and which frameworks/tools are used.
+2. ## تکنولوژی‌ها و معماری (Tech Stack & Architecture)
+   - Explain runtime stack, UI/backend architecture, state management approach (Redux/Zustand/Context/Query), and HTTP/client handling.
+3. ## ساختار پوشه‌ها (Project Structure)
+   - Provide a visual folder tree in a code block.
+   - Then explain responsibilities of major directories (e.g., src/pages vs src/components vs core/services).
+4. ## راهنمای نصب و اجرا (Getting Started)
+   - Provide exact setup commands in order (install, dev, build, test if available).
+   - Mention required environment variables and where to define them.
+5. ## ویژگی‌های کلیدی (Key Features)
+   - List key features and attach deep links to relevant files/components using [[Name:filePath:line]].
+
+QUALITY RULES:
+- This output must be pure Markdown and readable.
+- Do NOT generate API lists or JSON in this section.
+- Every technical claim should be grounded in provided context.
+- For every function/class/component name you mention, append source reference as [[Name:filePath:line]].
 """,
 
     "setup": """
