@@ -1,5 +1,5 @@
-import React, { useMemo, useState } from 'react';
-import { Search, Database, ArrowLeftRight, Info, Network } from 'lucide-react';
+import React, { useMemo, useRef, useState } from 'react';
+import { Search, Database, ArrowLeftRight, Info, Network, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
 import MarkdownRenderer from './MarkdownRenderer';
 
 type ApiField = { name?: string; type?: string; required?: boolean; desc?: string };
@@ -63,6 +63,33 @@ const normalizePathTokens = (path?: string) =>
     .filter(Boolean)
     .map((segment) => segment.replace(/\{[^}]+\}/g, ':param').toLowerCase());
 
+
+
+const toPersianSummary = (ep: ApiEndpoint) => {
+  const raw = (ep.summary || '').trim();
+  if (raw && /[؀-ۿ]/.test(raw)) return raw;
+
+  const method = (ep.method || 'GET').toUpperCase();
+  const verbMap: Record<string, string> = {
+    GET: 'دریافت',
+    POST: 'ایجاد',
+    PUT: 'به‌روزرسانی کامل',
+    PATCH: 'به‌روزرسانی',
+    DELETE: 'حذف',
+  };
+
+  const tokens = (ep.path || '')
+    .split('/')
+    .filter(Boolean)
+    .filter((t) => !t.startsWith(':') && !t.startsWith('{') && !/^v\d+$/i.test(t));
+
+  const resource = (tokens[tokens.length - 1] || 'منبع')
+    .replace(/[{}]/g, '')
+    .replace(/[-_]/g, ' ');
+
+  return `${verbMap[method] || 'عملیات'} اطلاعات ${resource}`;
+};
+
 const relationScore = (a: ApiEndpoint, b: ApiEndpoint) => {
   const ta = normalizePathTokens(a.path);
   const tb = normalizePathTokens(b.path);
@@ -79,6 +106,10 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
 
   const [search, setSearch] = useState('');
   const [selectedPathKey, setSelectedPathKey] = useState<string>('');
+  const [graphScale, setGraphScale] = useState(1);
+  const [graphOffset, setGraphOffset] = useState({ x: 0, y: 0 });
+  const [dragStart, setDragStart] = useState<{ x: number; y: number } | null>(null);
+  const svgWrapRef = useRef<HTMLDivElement | null>(null);
 
   const filtered = useMemo(() => {
     if (!search.trim()) return endpoints;
@@ -136,14 +167,32 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
     return nodes;
   }, [selected, related, selectedKey]);
 
+
+
+  const zoomGraph = (delta: number) => {
+    setGraphScale((prev) => Math.min(2.5, Math.max(0.6, +(prev + delta).toFixed(2))));
+  };
+
+  const resetGraphView = () => {
+    setGraphScale(1);
+    setGraphOffset({ x: 0, y: 0 });
+  };
+
+  const handleGraphWheel: React.WheelEventHandler<HTMLDivElement> = (event) => {
+    event.preventDefault();
+    zoomGraph(event.deltaY < 0 ? 0.1 : -0.1);
+  };
+
+  const selectedSummary = selected ? toPersianSummary(selected) : 'بدون توضیح';
+
   if (!endpoints.length) {
     return <MarkdownRenderer content={content} />;
   }
 
   return (
     <div className="h-[calc(100vh-150px)] rounded-[2rem] border border-slate-200 bg-[#f8f9fd] overflow-hidden" dir="rtl">
-      <div className="h-full grid grid-cols-12">
-        <aside className="col-span-3 border-r border-slate-200 bg-white flex flex-col">
+      <div className="h-full min-h-0 grid grid-cols-12">
+        <aside className="col-span-3 border-r border-slate-200 bg-white flex min-h-0 flex-col">
           <div className="p-5 border-b border-slate-200 bg-blue-50/30">
             <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
               <Database className="w-4 h-4 text-blue-600" />
@@ -152,14 +201,14 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
             <p className="text-xs text-slate-500 mt-1">برای endpoint انتخاب‌شده</p>
           </div>
 
-          <div className="flex-1 overflow-auto p-4 space-y-4">
+          <div className="min-h-0 flex-1 overflow-y-auto p-4 space-y-4">
             <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
               <div className="flex items-center justify-between mb-2">
                 <span className={`px-2 py-0.5 rounded text-[10px] border font-bold ${methodTone(selected?.method || 'GET')}`}>{(selected?.method || 'GET').toUpperCase()}</span>
-                <span className="text-[10px] text-slate-400 font-mono">{selected?.source || 'source: -'}</span>
+                <span className="max-w-[72%] text-[10px] text-slate-400 font-mono break-all text-left" dir="ltr" title={selected?.source || 'source: -'}>{selected?.source || 'source: -'}</span>
               </div>
               <p className="font-mono text-xs text-slate-800" dir="ltr">{selected?.path || '/'}</p>
-              {selected?.summary && <p className="text-xs text-slate-500 mt-1">{selected.summary}</p>}
+              <p className="text-xs text-slate-500 mt-1">{selectedSummary}</p>
             </div>
 
             <section className="rounded-xl border border-slate-200 overflow-hidden">
@@ -242,20 +291,32 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
           </div>
         </aside>
 
-        <section className="col-span-6 border-r border-l border-slate-200 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.07)_0%,transparent_35%),radial-gradient(circle_at_80%_80%,rgba(139,92,246,0.08)_0%,transparent_35%)] p-6">
+        <section className="col-span-6 min-h-0 border-r border-l border-slate-200 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.07)_0%,transparent_35%),radial-gradient(circle_at_80%_80%,rgba(139,92,246,0.08)_0%,transparent_35%)] p-6">
           <div className="flex items-center justify-between mb-4">
             <div>
               <h2 className="text-4xl font-black text-slate-800">گراف روابط Endpointها</h2>
               <p className="text-slate-500 mt-1">روابط واقعی بر اساس شباهت مسیرها و ماژول‌های مشترک</p>
             </div>
-            <div className="text-xs text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1 flex items-center gap-1">
-              <Network className="w-3.5 h-3.5" />
-              {related.length} ارتباط
+            <div className="flex items-center gap-2">
+              <div className="text-xs text-slate-500 bg-white border border-slate-200 rounded-full px-3 py-1 flex items-center gap-1">
+                <Network className="w-3.5 h-3.5" />
+                {related.length} ارتباط
+              </div>
+              <button onClick={() => zoomGraph(0.1)} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-600" title="بزرگنمایی">
+                <ZoomIn className="w-4 h-4" />
+              </button>
+              <button onClick={() => zoomGraph(-0.1)} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-600" title="کوچک‌نمایی">
+                <ZoomOut className="w-4 h-4" />
+              </button>
+              <button onClick={resetGraphView} className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:text-blue-600" title="بازنشانی">
+                <RotateCcw className="w-4 h-4" />
+              </button>
             </div>
           </div>
 
-          <div className="h-[500px] rounded-3xl border border-dashed border-blue-200 bg-white/60 overflow-hidden">
+          <div ref={svgWrapRef} onWheel={handleGraphWheel} onMouseDown={(e) => setDragStart({ x: e.clientX - graphOffset.x, y: e.clientY - graphOffset.y })} onMouseMove={(e) => { if (dragStart) setGraphOffset({ x: e.clientX - dragStart.x, y: e.clientY - dragStart.y }); }} onMouseUp={() => setDragStart(null)} onMouseLeave={() => setDragStart(null)} className="h-[500px] rounded-3xl border border-dashed border-blue-200 bg-white/60 overflow-hidden cursor-grab active:cursor-grabbing">
             <svg className="w-full h-full" viewBox="0 0 920 440">
+              <g transform={`translate(${graphOffset.x} ${graphOffset.y}) scale(${graphScale})`}>
               {graphNodes.filter((n) => !n.center).map((node, i) => (
                 <g key={`edge-${i}`}>
                   <line x1={460} y1={220} x2={node.x} y2={node.y} stroke="#c4b5fd" strokeDasharray="6 6" strokeWidth="2" />
@@ -266,7 +327,7 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
               ))}
 
               {graphNodes.map((node) => (
-                <g key={node.id}>
+                <g key={node.id} onClick={() => setSelectedPathKey(node.id)} className="cursor-pointer">
                   <circle
                     cx={node.x}
                     cy={node.y}
@@ -283,6 +344,7 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
                   </text>
                 </g>
               ))}
+              </g>
             </svg>
           </div>
 
@@ -302,7 +364,7 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
           </div>
         </section>
 
-        <aside className="col-span-3 border-l border-slate-200 bg-[#f8f7ff] flex flex-col">
+        <aside className="col-span-3 border-l border-slate-200 bg-[#f8f7ff] flex min-h-0 flex-col">
           <div className="p-4 border-b border-slate-200">
             <h3 className="text-sm font-extrabold text-slate-800 flex items-center gap-2">
               <ArrowLeftRight className="w-4 h-4 text-violet-600" />
@@ -319,7 +381,7 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
             </div>
           </div>
 
-          <div className="flex-1 overflow-auto p-3 space-y-2">
+          <div className="min-h-0 flex-1 overflow-y-auto p-3 space-y-2">
             {filtered.map((ep, idx) => {
               const key = `${(ep.method || '').toUpperCase()} ${ep.path || ''}`;
               const active = key === selectedKey;
@@ -334,7 +396,7 @@ const ApiExplorerView: React.FC<{ content: string }> = ({ content }) => {
                     <span className="text-[10px] text-slate-400">#{idx + 1}</span>
                   </div>
                   <p className="font-mono text-xs text-slate-800" dir="ltr">{ep.path || '/'}</p>
-                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{ep.summary || 'بدون توضیح'}</p>
+                  <p className="text-[11px] text-slate-500 mt-1 line-clamp-2">{toPersianSummary(ep)}</p>
                 </button>
               );
             })}
