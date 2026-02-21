@@ -397,7 +397,7 @@ def sanitize_mermaid(markdown_text: str) -> str:
         cleaned = [first]
         if is_sequence:
             valid_seq_prefix = (
-                'participant', 'actor', 'note', 'loop', 'end', 'alt', 'opt', 'par',
+                'participant', 'actor', 'note', 'loop', 'end', 'alt', 'else', 'opt', 'par',
                 'and', 'critical', 'break', 'rect', 'activate', 'deactivate', 'autonumber', 'title'
             )
             for line in lines[1:]:
@@ -428,9 +428,10 @@ def sanitize_mermaid(markdown_text: str) -> str:
                 else:
                     cleaned.append(f"%% {line}")
         elif is_erd:
-            # ER diagram supports a narrower grammar. Comment-out noisy flowchart/class lines.
+            # ER diagram supports a narrower grammar. Keep attributes inside entity blocks visible.
             valid_erd_prefix = ('title', 'direction', '%%')
             rel_markers = ('||--', '|o--', 'o|--', '}|--', '|{--', '}o--', 'o{--', '}|..', '|{..')
+            in_entity_block = False
             for line in lines[1:]:
                 s = line.strip()
                 lower = s.lower()
@@ -439,7 +440,23 @@ def sanitize_mermaid(markdown_text: str) -> str:
                 if lower.startswith('classdef') or lower.startswith('class ') or lower.startswith('style '):
                     cleaned.append(f"%% {line}")
                     continue
-                if any(m in s for m in rel_markers) or '{' in s or '}' in s or any(lower.startswith(p) for p in valid_erd_prefix):
+
+                if s.endswith('{'):
+                    in_entity_block = True
+                    cleaned.append(line)
+                    continue
+
+                if s == '}':
+                    in_entity_block = False
+                    cleaned.append(line)
+                    continue
+
+                if in_entity_block:
+                    # Preserve attribute rows like: string id PK
+                    cleaned.append(line)
+                    continue
+
+                if any(m in s for m in rel_markers) or any(lower.startswith(p) for p in valid_erd_prefix):
                     cleaned.append(line)
                 else:
                     cleaned.append(f"%% {line}")

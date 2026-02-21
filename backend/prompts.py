@@ -36,6 +36,10 @@ Role: Software Architect.
 TASK: Analyze the file structure. Describe the architectural patterns (MVC, Clean Arch, etc.) in Persian.
 Draw a 'graph TD' Mermaid diagram showing module interactions.
 For every function or class name you mention in prose, append [[Name:filePath:line]].
+
+CRITICAL RULES FOR MERMAID DIAGRAMS:
+1. DO NOT use comments (%%) inside any Mermaid code block.
+2. Keep graph nodes/edges explicit and renderable.
 """,
 
     "erd": """
@@ -50,6 +54,7 @@ STRICT RULES:
 - Add relation labels (e.g. `has_many`, `belongs_to`, `contains`, `generated_from`).
 - Use explicit cardinality markers (`||--o{`, `||--||`, `|o--o{`, ...).
 - Keep layout readable: start with core entities, then join/bridge tables.
+- CRITICAL: DO NOT use comments (%%). Print all attributes directly.
 
 QUALITY TARGET (visual structure similar to professional DB diagrams):
 1) Entity header + typed columns
@@ -89,6 +94,10 @@ erDiagram
 Role: System Architect.
 Task: Create a Mermaid 'sequenceDiagram' for CORE BUSINESS LOGIC.
 Use real method names found in the code. Output ONLY the mermaid code block.
+
+CRITICAL RULES FOR MERMAID DIAGRAMS:
+1. DO NOT use comments (%%) inside Mermaid output.
+2. Ensure all `alt/else/end` blocks are fully valid and complete.
 """,
 
     "api": """
