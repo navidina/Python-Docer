@@ -22,6 +22,10 @@ SAFE_CONTEXT_LIMITS = {
     "testing": 60000,
 }
 
+API_REF_BATCH_SIZE = max(1, int(os.getenv("API_REF_BATCH_SIZE", "10")))
+API_REF_MAX_FILES = max(1, int(os.getenv("API_REF_MAX_FILES", "5000")))
+API_REF_BATCH_CONTEXT_LIMIT = max(8000, int(os.getenv("API_REF_BATCH_CONTEXT_LIMIT", "120000")))
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -147,6 +151,189 @@ def _ingest_repo_in_background(analyzer: RepoAnalyzer):
         print(f"Ingestion completed in background: {ingest_meta}")
     except Exception as exc:
         print(f"Background ingestion failed: {exc}")
+
+
+
+def _extract_json_object(raw_text: str) -> Dict[str, Any]:
+    if not raw_text:
+        return {}
+
+    text = raw_text.strip()
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        try:
+            data = json.loads(fence_match.group(1))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    start = text.find('{')
+    if start == -1:
+        return {}
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                candidate = text[start:i + 1]
+                try:
+                    data = json.loads(candidate)
+                    if isinstance(data, dict):
+                        return data
+                except Exception:
+                    return {}
+
+    return {}
+
+
+def _pick_api_files(analyzer: RepoAnalyzer) -> List[str]:
+    api_like_keywords = ('api', 'service', 'controller', 'route', 'router', 'endpoint')
+    excluded_keywords = ('.spec.', '.test.', '__tests__', '/dist/', '/build/', '/coverage/', 'node_modules/', '/.next/')
+    allowed_ext = ('.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.java', '.kt', '.php', '.rb')
+
+    selected: List[str] = []
+    for path in analyzer.file_map.keys():
+        lower = path.lower()
+        if not lower.endswith(allowed_ext):
+            continue
+        if any(token in lower for token in excluded_keywords):
+            continue
+        if any(token in lower for token in api_like_keywords):
+            selected.append(path)
+
+    selected.sort()
+    return selected[:API_REF_MAX_FILES]
+
+
+def _build_batch_context(analyzer: RepoAnalyzer, batch_files: List[str], max_chars: int = API_REF_BATCH_CONTEXT_LIMIT) -> str:
+    chunks: List[str] = []
+    used = 0
+    for file_path in batch_files:
+        content = analyzer.file_map.get(file_path, '')
+        if not content:
+            continue
+        block = f"\n--- API FILE: {file_path} ---\n{content}\n"
+        if used + len(block) > max_chars:
+            break
+        chunks.append(block)
+        used += len(block)
+    return ''.join(chunks)
+
+
+async def _generate_api_ref_batched(
+    client: httpx.AsyncClient,
+    analyzer: RepoAnalyzer,
+    api_url: str,
+    is_openai: bool,
+    model_name: str,
+    base_prompt: str,
+) -> str:
+    api_files = _pick_api_files(analyzer)
+    if not api_files:
+        return '{"endpoints": []}'
+
+    models_reference = analyzer.get_context("components")
+    if len(models_reference) > 60000:
+        models_reference = models_reference[:60000]
+
+    all_endpoints: List[Dict[str, Any]] = []
+    total_batches = (len(api_files) + API_REF_BATCH_SIZE - 1) // API_REF_BATCH_SIZE
+
+    for index in range(0, len(api_files), API_REF_BATCH_SIZE):
+        batch_num = (index // API_REF_BATCH_SIZE) + 1
+        batch_files = api_files[index:index + API_REF_BATCH_SIZE]
+        batch_context = _build_batch_context(analyzer, batch_files)
+        if not batch_context:
+            continue
+
+        batch_prompt = f"""{base_prompt}
+
+STRICT MODE (batch {batch_num}/{total_batches}):
+- Extract endpoints ONLY from files listed in this batch.
+- Return PURE JSON object with top-level key "endpoints".
+- Never include markdown fences or explanations.
+
+MODELS REFERENCE:
+{models_reference}
+
+BATCH FILES:
+{batch_context}
+"""
+
+        if is_openai:
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": "You are an API extraction bot. Return strict JSON only."},
+                    {"role": "user", "content": batch_prompt},
+                ],
+                "temperature": 0.0,
+            }
+        else:
+            payload = {
+                "model": model_name,
+                "prompt": batch_prompt,
+                "stream": False,
+                "options": {"num_ctx": 32768},
+            }
+
+        try:
+            resp = await client.post(api_url, json=payload)
+            if resp.status_code != 200:
+                print(f"api_ref batch {batch_num}/{total_batches} failed: {resp.status_code} {resp.text[:400]}")
+                continue
+
+            data = resp.json()
+            raw_text = data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else data.get('response', '')
+            parsed = _extract_json_object(raw_text)
+            endpoints = parsed.get('endpoints', []) if isinstance(parsed, dict) else []
+            if isinstance(endpoints, list):
+                all_endpoints.extend(ep for ep in endpoints if isinstance(ep, dict))
+            print(f"api_ref batch {batch_num}/{total_batches} extracted {len(endpoints) if isinstance(endpoints, list) else 0} endpoints")
+        except Exception as exc:
+            print(f"api_ref batch {batch_num}/{total_batches} exception: {exc}")
+
+    dedup: Dict[tuple, Dict[str, Any]] = {}
+    for ep in all_endpoints:
+        method = str(ep.get('method', '')).upper().strip()
+        path = str(ep.get('path', '')).strip()
+        source = str(ep.get('source', '')).strip()
+        key = (method, path, source) if source else (method, path)
+        if not method or not path:
+            continue
+        if key not in dedup:
+            ep['method'] = method
+            dedup[key] = ep
+
+    merged = {
+        'endpoints': sorted(dedup.values(), key=lambda e: (str(e.get('path', '')), str(e.get('method', ''))))
+    }
+    return json.dumps(merged, ensure_ascii=False, indent=2)
 
 def sanitize_mermaid(markdown_text: str) -> str:
     """Normalize Mermaid blocks to reduce syntax errors from LLM output noise."""
@@ -302,6 +489,21 @@ async def generate_docs(request: GenerateRequest, background_tasks: BackgroundTa
                 if not is_selected or module not in PROMPTS: continue
 
                 context = analyzer.get_context(module)
+                if module == 'api_ref':
+                    try:
+                        batched_json = await _generate_api_ref_batched(
+                            client=client,
+                            analyzer=analyzer,
+                            api_url=api_url,
+                            is_openai=is_openai,
+                            model_name=request.model_name,
+                            base_prompt=PROMPTS[module],
+                        )
+                        response_data["docParts"][module] = normalize_api_ref_links(batched_json, analyzer)
+                    except Exception as api_ref_exc:
+                        response_data["docParts"][module] = f"Error: failed to build api_ref with batching: {api_ref_exc}"
+                    continue
+
                 if not context:
                     response_data["docParts"][module] = "INFO: No relevant files found for this module."
                     continue
@@ -329,8 +531,6 @@ async def generate_docs(request: GenerateRequest, background_tasks: BackgroundTa
                     data = resp.json()
                     raw_text = data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else data.get('response', '')
                     normalized_text = sanitize_mermaid(raw_text)
-                    if module == 'api_ref':
-                        normalized_text = normalize_api_ref_links(normalized_text, analyzer)
                     response_data["docParts"][module] = normalized_text
 
                 except Exception as e:
@@ -361,8 +561,6 @@ async def generate_docs(request: GenerateRequest, background_tasks: BackgroundTa
                             retry_data = retry_resp.json()
                             retry_text = retry_data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else retry_data.get('response', '')
                             normalized_retry_text = sanitize_mermaid(retry_text)
-                            if module == 'api_ref':
-                                normalized_retry_text = normalize_api_ref_links(normalized_retry_text, analyzer)
                             response_data["docParts"][module] = normalized_retry_text
                         else:
                             response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {retry_resp.text}"
