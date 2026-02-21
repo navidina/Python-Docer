@@ -1,12 +1,13 @@
 import re
 import json
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Dict, List, Optional, Any
 import httpx
 from analyzer import RepoAnalyzer
 from prompts import PROMPTS
+from services.db_service import VectorDBService
 import os
 import shutil
 import tempfile
@@ -17,7 +18,13 @@ app = FastAPI()
 SAFE_CONTEXT_LIMITS = {
     "api_ref": 60000,
     "components": 50000,
+    "examples": 60000,
+    "testing": 60000,
 }
+
+API_REF_BATCH_SIZE = max(1, int(os.getenv("API_REF_BATCH_SIZE", "10")))
+API_REF_MAX_FILES = max(1, int(os.getenv("API_REF_MAX_FILES", "5000")))
+API_REF_BATCH_CONTEXT_LIMIT = max(8000, int(os.getenv("API_REF_BATCH_CONTEXT_LIMIT", "120000")))
 
 app.add_middleware(
     CORSMiddleware,
@@ -30,6 +37,11 @@ app.add_middleware(
 # Store the active analyzer instance to allow /chat to access the analyzed repo
 active_analyzer: Optional[RepoAnalyzer] = None
 active_doc_parts: Dict[str, str] = {}
+active_repo_id: Optional[str] = None
+db_service = VectorDBService()
+
+CACHE_FILE = os.path.join("data", "latest_docs.json")
+os.makedirs("data", exist_ok=True)
 
 
 def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> str:
@@ -43,11 +55,12 @@ def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> 
     try:
         payload = json.loads(raw_text)
     except Exception:
-        return raw_text
+        payload = {"endpoints": []}
 
     endpoints = payload.get("endpoints")
     if not isinstance(endpoints, list):
-        return raw_text
+        endpoints = []
+        payload["endpoints"] = endpoints
 
     symbol_lines = {}
     for node, attrs in analyzer.graph.nodes(data=True):
@@ -80,6 +93,27 @@ def normalize_api_ref_links(raw_text: str, analyzer: Optional[RepoAnalyzer]) -> 
         if resolved_line is not None:
             ep["source"] = f"[[{name}:{file_path}:{resolved_line}]]"
 
+    # Coverage enhancer: merge deterministic endpoints extracted from full codebase scan.
+    deterministic = analyzer.extract_api_endpoints_catalog()
+    existing_keys = set()
+    for ep in endpoints:
+        if not isinstance(ep, dict):
+            continue
+        key = ((ep.get("method") or "").upper(), ep.get("path") or "")
+        if key[1]:
+            existing_keys.add(key)
+
+    for ep in deterministic:
+        key = ((ep.get("method") or "").upper(), ep.get("path") or "")
+        if not key[1] or key in existing_keys:
+            continue
+        endpoints.append(ep)
+        existing_keys.add(key)
+
+    # Stable ordering for UI explorer lists.
+    endpoints.sort(key=lambda e: (str(e.get("path", "")), str(e.get("method", ""))))
+    payload["endpoints"] = endpoints
+
     try:
         return json.dumps(payload, ensure_ascii=False, indent=2)
     except Exception:
@@ -90,6 +124,7 @@ class GenerateRequest(BaseModel):
     selected_modules: Dict[str, bool]
     model_name: str
     base_url: str = "http://localhost:11434"
+    embedding_model: Optional[str] = None
 
 class ChatRequest(BaseModel):
     message: str
@@ -100,6 +135,229 @@ class ChatRequest(BaseModel):
 
 class ReanalyzeRequest(BaseModel):
     file_path: str
+
+class GetFileRequest(BaseModel):
+    path: str
+
+class ClearDataResponse(BaseModel):
+    status: str
+    message: str
+
+
+def _ingest_repo_in_background(analyzer: RepoAnalyzer):
+    """Background LanceDB ingestion for chat retrieval; keeps doc generation graph-first."""
+    try:
+        ingest_meta = analyzer.ingest_current_state(replace_existing=True)
+        print(f"Ingestion completed in background: {ingest_meta}")
+    except Exception as exc:
+        print(f"Background ingestion failed: {exc}")
+
+
+
+def _extract_json_object(raw_text: str) -> Dict[str, Any]:
+    if not raw_text:
+        return {}
+
+    text = raw_text.strip()
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            return data
+    except Exception:
+        pass
+
+    fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", text, re.DOTALL | re.IGNORECASE)
+    if fence_match:
+        try:
+            data = json.loads(fence_match.group(1))
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            pass
+
+    start = text.find('{')
+    if start == -1:
+        return {}
+
+    depth = 0
+    in_string = False
+    escape = False
+    for i in range(start, len(text)):
+        ch = text[i]
+        if in_string:
+            if escape:
+                escape = False
+            elif ch == '\\':
+                escape = True
+            elif ch == '"':
+                in_string = False
+            continue
+
+        if ch == '"':
+            in_string = True
+        elif ch == '{':
+            depth += 1
+        elif ch == '}':
+            depth -= 1
+            if depth == 0:
+                candidate = text[start:i + 1]
+                try:
+                    data = json.loads(candidate)
+                    if isinstance(data, dict):
+                        return data
+                except Exception:
+                    return {}
+
+    return {}
+
+
+def _pick_api_files(analyzer: RepoAnalyzer) -> List[str]:
+    api_like_keywords = ('api', 'service', 'controller', 'route', 'router', 'endpoint')
+    excluded_keywords = ('.spec.', '.test.', '__tests__', '/dist/', '/build/', '/coverage/', 'node_modules/', '/.next/')
+    allowed_ext = ('.ts', '.tsx', '.js', '.jsx', '.py', '.go', '.java', '.kt', '.php', '.rb')
+
+    selected: List[str] = []
+    for path in analyzer.file_map.keys():
+        lower = path.lower()
+        if not lower.endswith(allowed_ext):
+            continue
+        if any(token in lower for token in excluded_keywords):
+            continue
+        if any(token in lower for token in api_like_keywords):
+            selected.append(path)
+
+    selected.sort()
+    return selected[:API_REF_MAX_FILES]
+
+
+def _build_batch_context(analyzer: RepoAnalyzer, batch_files: List[str], max_chars: int = API_REF_BATCH_CONTEXT_LIMIT) -> str:
+    chunks: List[str] = []
+    used = 0
+    for file_path in batch_files:
+        content = analyzer.file_map.get(file_path, '')
+        if not content:
+            continue
+        block = f"\n--- API FILE: {file_path} ---\n{content}\n"
+        if used + len(block) > max_chars:
+            break
+        chunks.append(block)
+        used += len(block)
+    return ''.join(chunks)
+
+
+async def _generate_api_ref_batched(
+    client: httpx.AsyncClient,
+    analyzer: RepoAnalyzer,
+    api_url: str,
+    is_openai: bool,
+    model_name: str,
+    base_prompt: str,
+) -> str:
+    api_files = _pick_api_files(analyzer)
+    if not api_files:
+        return '{"endpoints": []}'
+
+    models_reference = analyzer.get_context("components")
+    if len(models_reference) > 60000:
+        models_reference = models_reference[:60000]
+    print(f"Loaded Models Reference Length: {len(models_reference)} characters")
+
+    all_endpoints: List[Dict[str, Any]] = []
+    total_batches = (len(api_files) + API_REF_BATCH_SIZE - 1) // API_REF_BATCH_SIZE
+
+    for index in range(0, len(api_files), API_REF_BATCH_SIZE):
+        batch_num = (index // API_REF_BATCH_SIZE) + 1
+        batch_files = api_files[index:index + API_REF_BATCH_SIZE]
+        batch_context = _build_batch_context(analyzer, batch_files)
+        if not batch_context:
+            continue
+
+        batch_prompt = f"""
+[SYSTEM]
+You are a strict API extraction bot. Extract ALL API endpoints found ONLY in the provided API Files.
+
+CRITICAL RULES FOR DATA MODELS:
+1. DO NOT output interface or class names (like "IUserRequest" or "Dto") as types.
+2. You MUST search for the exact interface definition inside the [MODELS REFERENCE] section.
+3. EXPAND the interface into its actual underlying properties (e.g., username: string, isActive: boolean).
+4. If a field is truly missing from the context, write "primitive/unknown", but NEVER write "Definition not available".
+5. Return PURE JSON object with top-level key "endpoints". Never include markdown fences or explanations.
+
+OUTPUT SCHEMA:
+{{
+  "endpoints": [
+    {{
+      "method": "POST",
+      "path": "/url",
+      "summary": "...",
+      "source": "[[funcName:path/to/file.ts:line]]",
+      "requestBody": {{"fields": [{{"name": "username", "type": "string", "required": true, "desc": "..."}}]}},
+      "response": {{"fields": []}}
+    }}
+  ]
+}}
+
+BATCH INFO: {batch_num}/{total_batches}
+
+[BASE INSTRUCTIONS]
+{base_prompt}
+
+[MODELS REFERENCE]
+{models_reference}
+
+[API FILES TO PROCESS]
+{batch_context}
+"""
+
+        if is_openai:
+            payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": "You are an API extraction bot. Return strict JSON only."},
+                    {"role": "user", "content": batch_prompt},
+                ],
+                "temperature": 0.0,
+            }
+        else:
+            payload = {
+                "model": model_name,
+                "prompt": batch_prompt,
+                "stream": False,
+                "options": {"num_ctx": 32768},
+            }
+
+        try:
+            resp = await client.post(api_url, json=payload)
+            if resp.status_code != 200:
+                print(f"api_ref batch {batch_num}/{total_batches} failed: {resp.status_code} {resp.text[:400]}")
+                continue
+
+            data = resp.json()
+            raw_text = data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else data.get('response', '')
+            parsed = _extract_json_object(raw_text)
+            endpoints = parsed.get('endpoints', []) if isinstance(parsed, dict) else []
+            if isinstance(endpoints, list):
+                all_endpoints.extend(ep for ep in endpoints if isinstance(ep, dict))
+            print(f"api_ref batch {batch_num}/{total_batches} extracted {len(endpoints) if isinstance(endpoints, list) else 0} endpoints")
+        except Exception as exc:
+            print(f"api_ref batch {batch_num}/{total_batches} exception: {exc}")
+
+    dedup: Dict[tuple, Dict[str, Any]] = {}
+    for ep in all_endpoints:
+        method = str(ep.get('method', '')).upper().strip()
+        path = str(ep.get('path', '')).strip()
+        source = str(ep.get('source', '')).strip()
+        key = (method, path, source) if source else (method, path)
+        if not method or not path:
+            continue
+        if key not in dedup:
+            ep['method'] = method
+            dedup[key] = ep
+
+    merged = {
+        'endpoints': sorted(dedup.values(), key=lambda e: (str(e.get('path', '')), str(e.get('method', ''))))
+    }
+    return json.dumps(merged, ensure_ascii=False, indent=2)
 
 def sanitize_mermaid(markdown_text: str) -> str:
     """Normalize Mermaid blocks to reduce syntax errors from LLM output noise."""
@@ -139,7 +397,7 @@ def sanitize_mermaid(markdown_text: str) -> str:
         cleaned = [first]
         if is_sequence:
             valid_seq_prefix = (
-                'participant', 'actor', 'note', 'loop', 'end', 'alt', 'opt', 'par',
+                'participant', 'actor', 'note', 'loop', 'end', 'alt', 'else', 'opt', 'par',
                 'and', 'critical', 'break', 'rect', 'activate', 'deactivate', 'autonumber', 'title'
             )
             for line in lines[1:]:
@@ -170,9 +428,10 @@ def sanitize_mermaid(markdown_text: str) -> str:
                 else:
                     cleaned.append(f"%% {line}")
         elif is_erd:
-            # ER diagram supports a narrower grammar. Comment-out noisy flowchart/class lines.
+            # ER diagram supports a narrower grammar. Keep attributes inside entity blocks visible.
             valid_erd_prefix = ('title', 'direction', '%%')
             rel_markers = ('||--', '|o--', 'o|--', '}|--', '|{--', '}o--', 'o{--', '}|..', '|{..')
+            in_entity_block = False
             for line in lines[1:]:
                 s = line.strip()
                 lower = s.lower()
@@ -181,7 +440,23 @@ def sanitize_mermaid(markdown_text: str) -> str:
                 if lower.startswith('classdef') or lower.startswith('class ') or lower.startswith('style '):
                     cleaned.append(f"%% {line}")
                     continue
-                if any(m in s for m in rel_markers) or '{' in s or '}' in s or any(lower.startswith(p) for p in valid_erd_prefix):
+
+                if s.endswith('{'):
+                    in_entity_block = True
+                    cleaned.append(line)
+                    continue
+
+                if s == '}':
+                    in_entity_block = False
+                    cleaned.append(line)
+                    continue
+
+                if in_entity_block:
+                    # Preserve attribute rows like: string id PK
+                    cleaned.append(line)
+                    continue
+
+                if any(m in s for m in rel_markers) or any(lower.startswith(p) for p in valid_erd_prefix):
                     cleaned.append(line)
                 else:
                     cleaned.append(f"%% {line}")
@@ -203,8 +478,8 @@ def health_check():
     return {"status": "ok", "message": "Rayan Backend is running"}
 
 @app.post("/generate-docs")
-async def generate_docs(request: GenerateRequest):
-    global active_analyzer, active_doc_parts
+async def generate_docs(request: GenerateRequest, background_tasks: BackgroundTasks):
+    global active_analyzer, active_doc_parts, active_repo_id
     results = {}
     work_dir = request.repo_path
     temp_dir = None
@@ -225,8 +500,16 @@ async def generate_docs(request: GenerateRequest):
         # 1. Analyze and Store Globally
         print(f"Analyzing repo: {work_dir}")
         analyzer = RepoAnalyzer(work_dir)
+        analyzer.db_service.configure_embedding(base_url=request.base_url, model=request.embedding_model)
+        db_service.configure_embedding(base_url=request.base_url, model=request.embedding_model)
+
+        # Graph-first analysis for high-quality documentation generation.
         analyzer.analyze()
-        active_analyzer = analyzer # Save for Chat API
+        active_analyzer = analyzer
+        active_repo_id = analyzer.repo_id
+
+        # LanceDB ingestion is done in background for chat usage.
+        background_tasks.add_task(_ingest_repo_in_background, analyzer)
         
         # 2. Base Response with Stats and Graph
         response_data = {
@@ -247,6 +530,21 @@ async def generate_docs(request: GenerateRequest):
                 if not is_selected or module not in PROMPTS: continue
 
                 context = analyzer.get_context(module)
+                if module == 'api_ref':
+                    try:
+                        batched_json = await _generate_api_ref_batched(
+                            client=client,
+                            analyzer=analyzer,
+                            api_url=api_url,
+                            is_openai=is_openai,
+                            model_name=request.model_name,
+                            base_prompt=PROMPTS[module],
+                        )
+                        response_data["docParts"][module] = normalize_api_ref_links(batched_json, analyzer)
+                    except Exception as api_ref_exc:
+                        response_data["docParts"][module] = f"Error: failed to build api_ref with batching: {api_ref_exc}"
+                    continue
+
                 if not context:
                     response_data["docParts"][module] = "INFO: No relevant files found for this module."
                     continue
@@ -274,8 +572,6 @@ async def generate_docs(request: GenerateRequest):
                     data = resp.json()
                     raw_text = data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else data.get('response', '')
                     normalized_text = sanitize_mermaid(raw_text)
-                    if module == 'api_ref':
-                        normalized_text = normalize_api_ref_links(normalized_text, analyzer)
                     response_data["docParts"][module] = normalized_text
 
                 except Exception as e:
@@ -306,8 +602,6 @@ async def generate_docs(request: GenerateRequest):
                             retry_data = retry_resp.json()
                             retry_text = retry_data.get('choices', [{}])[0].get('message', {}).get('content', '') if is_openai else retry_data.get('response', '')
                             normalized_retry_text = sanitize_mermaid(retry_text)
-                            if module == 'api_ref':
-                                normalized_retry_text = normalize_api_ref_links(normalized_retry_text, analyzer)
                             response_data["docParts"][module] = normalized_retry_text
                         else:
                             response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {retry_resp.text}"
@@ -315,28 +609,104 @@ async def generate_docs(request: GenerateRequest):
                         response_data["docParts"][module] = f"Connection Error: {str(e)} | Retry failed: {str(retry_error)}"
 
         active_doc_parts = response_data.get("docParts", {})
+
+        cache_payload = {
+            **response_data,
+            "repoPath": work_dir,
+            "sourceRepoPath": request.repo_path,
+            "repoId": active_repo_id,
+        }
+        try:
+            with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump(cache_payload, f, ensure_ascii=False)
+        except Exception as cache_exc:
+            print(f"Warning: failed to persist latest docs cache: {cache_exc}")
+
         return response_data
 
     finally:
         if temp_dir and os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
 
+
+@app.get("/latest-docs")
+async def get_latest_docs():
+    global active_analyzer, active_doc_parts, active_repo_id
+
+    if not os.path.exists(CACHE_FILE):
+        raise HTTPException(status_code=404, detail="No documentation generated yet")
+
+    try:
+        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        # Restore in-memory fast paths for chat/get-file after server restart.
+        if isinstance(data.get("docParts"), dict):
+            active_doc_parts = data["docParts"]
+
+        repo_id = data.get("repoId")
+        if isinstance(repo_id, str) and repo_id:
+            active_repo_id = repo_id
+
+        repo_path = data.get("repoPath")
+        if active_analyzer is None and isinstance(repo_path, str) and os.path.exists(repo_path):
+            restored = RepoAnalyzer(repo_path)
+            restored.analyze()
+            active_analyzer = restored
+            if not active_repo_id:
+                active_repo_id = restored.repo_id
+
+        return data
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Failed to load latest docs: {exc}")
+
+
+
+@app.post("/clear-all-data", response_model=ClearDataResponse)
+async def clear_all_data_endpoint():
+    global active_analyzer, active_doc_parts, active_repo_id
+
+    try:
+        db_service.clear_all_data()
+
+        if os.path.exists(CACHE_FILE):
+            os.remove(CACHE_FILE)
+
+        active_analyzer = None
+        active_doc_parts = {}
+        active_repo_id = None
+
+        return {
+            "status": "success",
+            "message": "All backend cached docs and LanceDB data were deleted."
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"Clear data failed: {exc}")
+
+
 @app.post("/chat")
 async def chat_endpoint(request: ChatRequest):
     """
     RAG-enabled Chat Endpoint.
-    Uses analyzed code + generated documentation parts for deeper answers.
+    Uses centralized LanceDB retrieval + generated documentation parts.
     """
-    global active_analyzer, active_doc_parts
+    global active_doc_parts, active_repo_id
 
-    if not active_analyzer:
+    if not active_repo_id:
         raise HTTPException(status_code=400, detail="Repository not analyzed yet. Please run generation first.")
 
-    # 1) Code-context retrieval
-    relevant_files = active_analyzer.search_context(request.message, limit=6)
+    # 1) Code-context retrieval from LanceDB
+    relevant_chunks = db_service.search(request.message, repo_id=active_repo_id, limit=6)
     code_context = ""
-    for score, path, content in relevant_files:
-        code_context += f"\n--- FILE: {path} (score={score}) ---\n{content}\n"
+    for chunk in relevant_chunks:
+        score = chunk.get('_distance', 'n/a')
+        code_context += (
+            f"\n--- FILE: {chunk.get('file_path', 'unknown')} "
+            f"(line={chunk.get('start_line', 1)}, distance={score}) ---\n"
+            f"{chunk.get('text', '')[:2200]}\n"
+        )
 
     # 2) Documentation-context retrieval
     docs_source = request.doc_parts if request.doc_parts else active_doc_parts
@@ -355,7 +725,7 @@ async def chat_endpoint(request: ChatRequest):
             doc_context += f"\n--- DOC SECTION: {section} ---\n{text[:3500]}\n"
 
     if not code_context:
-        code_context = "No specific code files matched query keywords."
+        code_context = "No specific code chunks matched query keywords in LanceDB."
     if not doc_context:
         doc_context = "No documentation sections matched query keywords."
 
@@ -409,9 +779,26 @@ async def chat_endpoint(request: ChatRequest):
     except Exception as e:
         return {"response": f"Internal Error: {str(e)}"}
 
+
+@app.post("/get-file")
+async def get_file_endpoint(request: GetFileRequest):
+    global active_repo_id, active_analyzer
+
+    if active_analyzer and request.path in active_analyzer.file_map:
+        return {"path": request.path, "content": active_analyzer.file_map[request.path]}
+
+    if not active_repo_id:
+        raise HTTPException(status_code=400, detail="Repository not analyzed yet. Please run generation first.")
+
+    content = db_service.get_file_content(request.path, repo_id=active_repo_id)
+    if content is None:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return {"path": request.path, "content": content}
+
 @app.post("/reanalyze")
 async def reanalyze_file_endpoint(request: ReanalyzeRequest):
-    global active_analyzer
+    global active_analyzer, active_repo_id
     if not active_analyzer:
         raise HTTPException(status_code=400, detail="Repository not analyzed yet.")
     
@@ -429,17 +816,18 @@ async def reanalyze_file_endpoint(request: ReanalyzeRequest):
         # Update content in file_map
         active_analyzer.file_map[request.file_path] = content
         
-        # Re-run dependency parsing for this specific file
-        # Note: _parse_dependencies expects (rel_path, content, filename)
-        filename = os.path.basename(full_path)
-        active_analyzer._parse_dependencies(request.file_path, content, filename)
-        
+        # Rebuild analyzer graph for documentation quality, then refresh LanceDB index
+        active_analyzer.analyze()
+        ingest_meta = active_analyzer.ingest_current_state(replace_existing=True)
+        active_repo_id = ingest_meta.get("repo_id")
+
         # Return updated graph and stats
         return {
-            "status": "success", 
+            "status": "success",
             "graph": active_analyzer.export_knowledge_graph(),
             "stats": active_analyzer.get_project_stats(),
-            "codeHealth": active_analyzer.get_code_health()
+            "codeHealth": active_analyzer.get_code_health(),
+            "ingestion": ingest_meta,
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
