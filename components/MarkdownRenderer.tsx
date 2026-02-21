@@ -99,6 +99,11 @@ const ApiJsonBlock = ({ jsonText, onFileClick }: { jsonText: string; onFileClick
 };
 
 
+const isCodeLikeLine = (line: string): boolean => {
+  const l = line.trim();
+  return /(import\s+.+from|export\s+|const\s+\w+\s*=|function\s+\w+|class\s+\w+|=>|<\w+[^>]*>|return\s+|;\s*$|^\{|^\}|^\)|^\]|^\(|^\[)/.test(l);
+};
+
 const looksLikeMarkdownContent = (value: string): boolean => {
   const text = value.trim();
   if (!text) return false;
@@ -115,12 +120,13 @@ const looksLikeMarkdownContent = (value: string): boolean => {
     /^```/.test(line)
   ).length;
 
-  const commentSignals = lines.filter((line) => /^\/\//.test(line)).length;
-  const codeSignals = lines.filter((line) =>
-    /(import\s+.+from|export\s+|const\s+\w+\s*=|function\s+\w+|class\s+\w+|=>|<\w+[^>]*>|return\s+|;\s*$)/.test(line)
-  ).length;
+  const leadingCommentSignals = lines.filter((line) => /^\/\//.test(line)).length;
+  const trailingCommentSignals = lines.filter((line) => /\s\/\/\s*$/.test(line) && !isCodeLikeLine(line)).length;
+  const codeSignals = lines.filter((line) => isCodeLikeLine(line)).length;
 
-  return (markdownSignals >= 2 || commentSignals >= Math.max(3, Math.floor(lines.length * 0.4))) && codeSignals <= Math.max(3, Math.floor(lines.length * 0.6));
+  const commentedNarrative = leadingCommentSignals + trailingCommentSignals;
+  return (markdownSignals >= 2 || commentedNarrative >= Math.max(3, Math.floor(lines.length * 0.35)))
+    && codeSignals <= Math.max(4, Math.floor(lines.length * 0.65));
 };
 
 const convertCommentedCodeToMixedMarkdown = (value: string, lang: string): string => {
@@ -136,18 +142,34 @@ const convertCommentedCodeToMixedMarkdown = (value: string, lang: string): strin
     codeBucket = [];
   };
 
+  const extractNarrative = (line: string): string | null => {
+    const leading = line.match(/^\s*\/\/\s?(.*)$/);
+    if (leading) return leading[1];
+
+    if (/\s\/\/\s*$/.test(line) && !isCodeLikeLine(line)) {
+      return line.replace(/\s*\/\/\s*$/, '').trim();
+    }
+
+    return null;
+  };
+
   for (const raw of lines) {
     const line = raw || '';
-    const commentMatch = line.match(/^\s*\/\/\s?(.*)$/);
-    if (commentMatch) {
+    const narrative = extractNarrative(line);
+
+    if (narrative !== null) {
       flushCode();
-      out.push(commentMatch[1]);
-    } else if (!line.trim()) {
+      out.push(narrative);
+      continue;
+    }
+
+    if (!line.trim()) {
       if (codeBucket.length) codeBucket.push('');
       else out.push('');
-    } else {
-      codeBucket.push(line);
+      continue;
     }
+
+    codeBucket.push(line);
   }
 
   flushCode();

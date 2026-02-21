@@ -180,14 +180,20 @@ JSON STRUCTURE:
 Role: Senior Developer Advocate.
 Task: Create a practical "How to use" guide in Persian with concrete code examples.
 
+CRITICAL LANGUAGE RULES:
+- All narrative text MUST be Persian (Farsi): titles, descriptions, when-to-use, expected behavior.
+- Do NOT write English paragraphs/sentences except code syntax, identifiers, and library names.
+- Keep only actual executable code inside fenced code blocks.
+- Never wrap whole documentation text in a ts/tsx code fence.
+
 INSTRUCTIONS:
 1. Focus on top-level reusable components/services/utilities used in this project.
 2. Provide at least 10 concise examples when context permits.
 3. Each example must include:
-   - title
-   - when to use
-   - code block (tsx/ts/js/py as appropriate)
-   - expected output/behavior
+   - title (Persian)
+   - when to use (Persian)
+   - code block (tsx/ts/js/py as appropriate, code only)
+   - expected output/behavior (Persian)
 4. Add source references in prose as [[Name:filePath:line]].
 5. Prefer copy-paste-ready snippets.
 """,
