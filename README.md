@@ -9,7 +9,7 @@ Rayan HamAfza Docs is a modern React application designed to automatically gener
 
 ## Features
 
-*   **Local Processing:** Runs entirely in your browser using local Ollama models. Your code never leaves your machine.
+*   **Centralized Processing:** Backend ingests repositories once and stores vectorized code chunks in LanceDB for organization-wide reuse.
 *   **Semantic Analysis:** parses code to understand classes, functions, and relationships.
 *   **Knowledge Graph:** Visualizes dependencies between files and symbols.
 *   **Architecture Analysis:** Detects architectural violations (e.g., UI directly accessing Database) and "Zombie" (dead) code.
@@ -20,6 +20,7 @@ Rayan HamAfza Docs is a modern React application designed to automatically gener
     *   Data Flow Diagrams
     *   User Journey & Use Cases
 *   **RAG Chat:** Chat with your codebase using Retrieval-Augmented Generation.
+*   **Examples & Testing Docs:** Auto-generates practical usage examples and a full testing guide (Unit/Integration/E2E).
 *   **Playground:** Integrated JavaScript playground to test pure functions extracted from your code.
 
 ## Prerequisites
@@ -73,13 +74,34 @@ Once processing is complete, navigate via the sidebar:
 *   **Diagrams**: View auto-generated system diagrams.
 *   **Chat**: Ask questions like "How does the authentication flow work?".
 
+
+### 4. Centralized Ingestion (LanceDB)
+
+When `/generate-docs` runs, backend now:
+1. Scans and analyzes the full repository.
+2. Builds semantic chunks (full files + entities).
+3. Embeds and stores chunks in LanceDB (`shared_data/lancedb`).
+
+Then `/chat` retrieves relevant chunks directly from LanceDB, and `/get-file` returns full file content from the knowledge base.
+
+Embedding source is configurable via environment variables on backend:
+- `EMBEDDING_BASE_URL` (default: `http://127.0.0.1:1234/v1`)
+- `EMBEDDING_MODEL` (default: `text-embedding-all-minilm-l6-v2-embedding`)
+- `EMBEDDING_ALLOW_LOCAL_FALLBACK` (default: `false`)
+
+By default, backend will NOT fallback to local `sentence-transformers` if LM Studio is unreachable; it fails fast with a clear error so setup issues are explicit.
+Set `EMBEDDING_ALLOW_LOCAL_FALLBACK=true` only if you intentionally want local fallback behavior.
+The backend now uses the same `base_url` and `embeddingModel` provided by app settings/request payload when calling embedding APIs.
+When embedding dimension differs from an existing LanceDB table schema, backend automatically routes writes/reads to a compatible dimension-specific table (e.g. `code_chunks_768d`) to avoid Arrow cast errors.
+Documentation generation remains graph-first (`RepoAnalyzer.get_context`) for structural precision, while LanceDB ingestion runs in background and is primarily used for chat retrieval.
+
 ## Architecture Overview
 
 The application is built with:
 *   **Frontend**: React, TypeScript, Tailwind CSS.
 *   **State Management**: React Hooks (Custom `useRepoProcessor`).
 *   **Parsing**: Custom Regex-based tokenizer & Semantic Parser (`services/codeParser.ts`).
-*   **Vector DB**: In-memory `LocalVectorStore` for RAG operations.
+*   **Vector DB**: Centralized LanceDB (`backend/services/db_service.py`) for semantic retrieval and file serving.
 *   **LLM Integration**: Direct fetch calls to local Ollama API.
 
 ## Troubleshooting

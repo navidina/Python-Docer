@@ -3,6 +3,8 @@ import json
 import re
 import networkx as nx
 
+from services.db_service import VectorDBService
+
 # Safe import for tree-sitter to prevent server crash
 try:
     from tree_sitter import Parser
@@ -54,7 +56,9 @@ class RepoAnalyzer:
         self.tree_structure = ""
         self.parsers = {} 
         self.symbol_table = {}
-        
+        self.db_service = VectorDBService()
+        self.repo_id = self.db_service.build_repo_id(repo_path)
+
         # TSConfig Alias Settings
         self.tsconfig_paths = {}
         self.tsconfig_base_url = "."
@@ -537,6 +541,35 @@ class RepoAnalyzer:
                     if not add_to_context(f"Entry Point: {path}", content):
                         break
 
+
+        elif module_type == 'examples':
+            # Prefer reusable implementation points for usage examples.
+            example_keywords = ['component', 'hook', 'service', 'util', 'helper', 'client', 'api']
+            for path, content in self.file_map.items():
+                if len(context) >= MAX_CHARS:
+                    break
+                lower = path.lower()
+                if path.endswith(('.tsx', '.ts', '.jsx', '.js', '.py')) and any(k in lower for k in example_keywords):
+                    if not add_to_context(f"Example Candidate: {path}", content):
+                        break
+
+        elif module_type == 'testing':
+            # Include existing tests first.
+            for path, content in self.file_map.items():
+                if len(context) >= MAX_CHARS:
+                    break
+                lower = path.lower()
+                is_test = any(k in lower for k in ['.test.', '.spec.', '__tests__', 'e2e', 'playwright', 'cypress'])
+                if is_test and path.endswith(('.ts', '.tsx', '.js', '.jsx', '.py', '.md', '.json')):
+                    if not add_to_context(f"Test File: {path}", content):
+                        break
+
+            # Include test config and scripts for guide generation.
+            test_configs = ['package.json', 'pytest.ini', 'vitest.config.ts', 'jest.config.js', 'playwright.config.ts', 'cypress.config.ts']
+            for conf in test_configs:
+                if conf in self.file_map:
+                    if not add_to_context(f"Test Config: {conf}", self.file_map[conf]):
+                        break
         elif module_type == 'arch':
             context = self.tree_structure + "\n"
             for conf in ['package.json', 'tsconfig.json', 'vite.config.ts', 'docker-compose.yml', 'Dockerfile']:
@@ -544,6 +577,131 @@ class RepoAnalyzer:
                     break
 
         return context
+
+    def extract_api_endpoints_catalog(self) -> list[dict]:
+        """
+        Deterministic endpoint extraction to improve coverage beyond LLM-only detection.
+        Captures both server-side routes and client-side API calls across common stacks.
+        """
+        endpoint_map = {}
+
+        route_patterns = [
+            # Express/Fastify/Koa routers: app.get('/x'), router.post('/x')
+            (re.compile(r"\b(?:app|router)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            # NestJS decorators: @Get('/x')
+            (re.compile(r"@\s*(Get|Post|Put|Patch|Delete)\s*\(\s*['\"]([^'\"]*)['\"]?\s*\)", re.IGNORECASE), "server"),
+            # FastAPI/Flask style decorators: @app.get('/x'), @router.post('/x')
+            (re.compile(r"@\s*(?:app|router|bp)\s*\.\s*(get|post|put|patch|delete)\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            # Spring mappings in Java: @GetMapping('/x'), @RequestMapping(value='/x', method=RequestMethod.GET)
+            (re.compile(r"@\s*(GetMapping|PostMapping|PutMapping|PatchMapping|DeleteMapping)\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            (re.compile(r"@\s*RequestMapping\s*\([^\)]*method\s*=\s*RequestMethod\.(GET|POST|PUT|PATCH|DELETE)[^\)]*value\s*=\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "server"),
+            # Client HTTP helpers: axios.get('/x'), http.post('/x'), apiClient.patch('/x')
+            (re.compile(r"\b(?:axios|http|api|apiClient|client|request)\s*\.\s*(get|post|put|patch|delete)\s*(?:<[^>]+>)?\s*\(\s*['\"]([^'\"]+)['\"]", re.IGNORECASE), "client"),
+            # fetch('/x', { method: 'POST' }) (method optional -> GET)
+            (re.compile(r"\bfetch\s*\(\s*['\"]([^'\"]+)['\"](?:\s*,\s*\{[^\}]*?method\s*:\s*['\"](GET|POST|PUT|PATCH|DELETE)['\"])?", re.IGNORECASE | re.DOTALL), "client_fetch"),
+        ]
+
+        allowed_ext = ('.ts', '.tsx', '.js', '.jsx', '.py', '.java', '.go', '.rs')
+
+        for path, content in self.file_map.items():
+            if not path.endswith(allowed_ext):
+                continue
+
+            lines = content.splitlines()
+            for line_no, line in enumerate(lines, start=1):
+                for pattern, kind in route_patterns:
+                    for m in pattern.finditer(line):
+                        if kind == 'client_fetch':
+                            endpoint_path = (m.group(1) or '').strip()
+                            method = (m.group(2) or 'GET').upper()
+                        elif 'Mapping' in (m.group(1) or ''):
+                            method = m.group(1).replace('Mapping', '').upper()
+                            endpoint_path = (m.group(2) or '').strip()
+                        else:
+                            method = (m.group(1) or 'GET').upper()
+                            endpoint_path = (m.group(2) or '').strip()
+
+                        if not endpoint_path or endpoint_path.startswith('${'):
+                            continue
+
+                        summary = line.strip()
+                        source = f"[[{method.lower()}_{line_no}:{path}:{line_no}]]"
+                        key = (method, endpoint_path)
+
+                        existing = endpoint_map.get(key)
+                        if existing is None:
+                            endpoint_map[key] = {
+                                "method": method,
+                                "path": endpoint_path,
+                                "summary": summary[:220],
+                                "source": source,
+                                "requestBody": {"fields": []},
+                                "response": {"fields": []},
+                                "requestExample": {},
+                                "responseExample": {},
+                                "errorResponses": []
+                            }
+                        else:
+                            # Prefer server-side source when duplicate exists.
+                            is_serverish = any(token in path.lower() for token in ['controller', 'route', 'router', 'endpoint', 'api'])
+                            if is_serverish:
+                                existing["source"] = source
+                                existing["summary"] = summary[:220]
+
+        return sorted(endpoint_map.values(), key=lambda e: (e.get("path", ""), e.get("method", "")))
+
+    def _build_ingestion_chunks(self):
+        chunks = []
+
+        for path, content in self.file_map.items():
+            chunks.append({
+                "text": content,
+                "file_path": path,
+                "start_line": 1,
+                "end_line": len(content.splitlines()) or 1,
+                "type": "file_full",
+                "name": path,
+            })
+
+        for node_id, attrs in self.graph.nodes(data=True):
+            if attrs.get("type") != "entity":
+                continue
+
+            file_path = attrs.get("filePath")
+            name = attrs.get("name") or node_id
+            line = int(attrs.get("line", 1))
+            snippet = attrs.get("snippet", "")
+            kind = attrs.get("kind", "entity")
+
+            if not file_path or not snippet:
+                continue
+
+            chunks.append({
+                "text": snippet,
+                "file_path": file_path,
+                "start_line": line,
+                "end_line": line + max(1, snippet.count("\n")),
+                "type": kind,
+                "name": name,
+            })
+
+        return chunks
+
+    def ingest_current_state(self, replace_existing: bool = True):
+        """Ingest currently analyzed graph/file_map into LanceDB."""
+        if replace_existing:
+            self.db_service.clear_repo(self.repo_id)
+
+        chunks = self._build_ingestion_chunks()
+        self.db_service.ingest_code_chunks(chunks, repo_id=self.repo_id)
+        return {
+            "repo_id": self.repo_id,
+            "chunks_ingested": len(chunks),
+        }
+
+    def analyze_and_ingest(self, replace_existing: bool = True):
+        self.analyze()
+        return self.ingest_current_state(replace_existing=replace_existing)
 
     def get_project_stats(self):
         stats = []
