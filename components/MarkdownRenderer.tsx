@@ -125,8 +125,24 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
     return <div className="my-5 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 whitespace-pre-wrap">{codeText}</div>;
   }
 
+  // Compact single-line snippets (package names, ids, short commands) should not consume full-width cards.
+  const trimmed = codeText.trim();
+  const isSingleLine = !trimmed.includes('\n');
+  const isShortSnippet = trimmed.length > 0 && trimmed.length <= 80;
+  const isMostlyToken = /^[a-zA-Z0-9@._\-/]+$/.test(trimmed);
+  if (!inline && isSingleLine && isShortSnippet && (lang === '' || lang === 'text' || isMostlyToken)) {
+    return (
+      <div className="my-3 inline-flex max-w-full items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 dir-ltr align-middle">
+        <code className="text-xs font-mono text-slate-700 break-all">{trimmed}</code>
+        <button onClick={() => navigator.clipboard.writeText(trimmed)} className="text-slate-400 hover:text-slate-700 shrink-0">
+          <Copy className="w-3.5 h-3.5" />
+        </button>
+      </div>
+    );
+  }
+
   return (
-    <div className="my-6 dir-ltr border border-slate-200 rounded-xl overflow-hidden bg-[#1E293B]">
+    <div className="my-6 dir-ltr border border-slate-200 rounded-xl overflow-hidden bg-[#1E293B] max-w-full">
       <div className="flex items-center justify-between px-4 py-2 bg-[#0F172A] border-b border-slate-700">
         <span className="text-xs text-slate-400 font-mono uppercase">{lang || 'TEXT'}</span>
         <button onClick={() => navigator.clipboard.writeText(codeText)} className="text-slate-400 hover:text-white">
