@@ -1,167 +1,185 @@
-
-import React, { useMemo, useRef, useState, useEffect } from 'react';
-import ForceGraph2D from 'react-force-graph-2d';
+import React, { useMemo, useState } from 'react';
 import { ProcessedFile } from '../types';
-import { Maximize2, Minimize2, Share2, ZoomIn, ZoomOut, RotateCcw } from 'lucide-react';
+import { ChevronDown, ChevronLeft, Folder, FolderOpen, FileCode2, FileText, FileJson, Braces, Layers3 } from 'lucide-react';
 
 interface ProjectStructureVisualizerProps {
   fileMap: Record<string, ProcessedFile>;
 }
 
+type TreeNode = {
+  name: string;
+  path: string;
+  type: 'folder' | 'file';
+  children: Map<string, TreeNode>;
+  fileCount: number;
+  lineCount: number;
+};
+
+const createNode = (name: string, path: string, type: 'folder' | 'file'): TreeNode => ({
+  name,
+  path,
+  type,
+  children: new Map(),
+  fileCount: type === 'file' ? 1 : 0,
+  lineCount: 0,
+});
+
+const fileIcon = (name: string) => {
+  const lower = name.toLowerCase();
+  if (lower.endsWith('.json')) return <FileJson className="w-3.5 h-3.5 text-amber-500" />;
+  if (lower.endsWith('.md') || lower.endsWith('.txt')) return <FileText className="w-3.5 h-3.5 text-emerald-500" />;
+  if (lower.endsWith('.ts') || lower.endsWith('.tsx') || lower.endsWith('.js') || lower.endsWith('.jsx')) return <FileCode2 className="w-3.5 h-3.5 text-sky-500" />;
+  return <Braces className="w-3.5 h-3.5 text-slate-500" />;
+};
+
+const TreeItem: React.FC<{ node: TreeNode; depth: number; expanded: Record<string, boolean>; toggle: (path: string) => void }> = ({ node, depth, expanded, toggle }) => {
+  const isFolder = node.type === 'folder';
+  const hasChildren = node.children.size > 0;
+  const isOpen = expanded[node.path] ?? depth < 2;
+  const children = Array.from(node.children.values()).sort((a, b) => {
+    if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return (
+    <div>
+      <button
+        onClick={() => isFolder && hasChildren && toggle(node.path)}
+        className={`w-full text-right flex items-center gap-2 rounded-xl px-2 py-1.5 ${isFolder ? 'hover:bg-slate-100/80' : ''}`}
+        style={{ paddingRight: `${depth * 14 + 8}px` }}
+      >
+        {isFolder ? (
+          <span className="text-slate-400 shrink-0">
+            {hasChildren ? (isOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronLeft className="w-3.5 h-3.5" />) : <span className="inline-block w-3.5" />}
+          </span>
+        ) : (
+          <span className="inline-block w-3.5" />
+        )}
+
+        {isFolder ? (
+          isOpen ? <FolderOpen className="w-4 h-4 text-violet-600 shrink-0" /> : <Folder className="w-4 h-4 text-slate-500 shrink-0" />
+        ) : (
+          fileIcon(node.name)
+        )}
+
+        <span className={`text-sm truncate ${isFolder ? 'font-bold text-slate-700' : 'font-medium text-slate-600'}`}>{node.name}</span>
+
+        {isFolder && (
+          <span className="mr-auto text-[10px] text-slate-400 font-mono bg-slate-100 px-1.5 py-0.5 rounded">
+            {node.fileCount} فایل
+          </span>
+        )}
+      </button>
+
+      {isFolder && hasChildren && isOpen && (
+        <div className="relative">
+          {children.map((child) => (
+            <TreeItem key={child.path} node={child} depth={depth + 1} expanded={expanded} toggle={toggle} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
 const ProjectStructureVisualizer: React.FC<ProjectStructureVisualizerProps> = ({ fileMap }) => {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const fgRef = useRef<any>(null);
-  const [dimensions, setDimensions] = useState({ width: 800, height: 600 });
-  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    const updateDims = () => {
-        if (containerRef.current) {
-            setDimensions({
-                width: containerRef.current.offsetWidth,
-                height: isFullscreen ? window.innerHeight - 40 : 500
-            });
+  const { root, folderCount, fileCount, totalLines, topFolders } = useMemo(() => {
+    const root = createNode('Project Root', 'ROOT', 'folder');
+
+    Object.values(fileMap).forEach((file) => {
+      const parts = file.path.split('/').filter(Boolean);
+      let current = root;
+      let currentPath = '';
+
+      parts.forEach((part, index) => {
+        const isFile = index === parts.length - 1;
+        currentPath = currentPath ? `${currentPath}/${part}` : part;
+
+        if (!current.children.has(part)) {
+          current.children.set(part, createNode(part, currentPath, isFile ? 'file' : 'folder'));
         }
-    };
-    window.addEventListener('resize', updateDims);
-    setTimeout(updateDims, 500);
-    return () => window.removeEventListener('resize', updateDims);
-  }, [isFullscreen]);
 
-  const graphData = useMemo(() => {
-    const nodes: any[] = [];
-    const links: any[] = [];
-    const paths = new Set<string>();
-    
-    nodes.push({ id: 'ROOT', name: 'Project Root', group: 'root', val: 20, color: '#facc15' });
-
-    Object.values(fileMap).forEach((file: ProcessedFile) => {
-        const parts = file.path.split('/');
-        let currentPath = '';
-
-        parts.forEach((part, index) => {
-            const isFile = index === parts.length - 1;
-            const parentPath = currentPath || 'ROOT';
-            currentPath = currentPath ? `${currentPath}/${part}` : part;
-
-            if (!paths.has(currentPath)) {
-                paths.add(currentPath);
-                let group = 'folder';
-                let color = '#64748b'; 
-                let val = 5;
-
-                if (isFile) {
-                    group = 'file';
-                    val = 2; 
-                    if (part.endsWith('.tsx') || part.endsWith('.ts')) color = '#38bdf8'; 
-                    else if (part.endsWith('.css') || part.endsWith('.scss')) color = '#f472b6'; 
-                    else if (part.endsWith('.json')) color = '#fbbf24'; 
-                    else if (part.endsWith('.js') || part.endsWith('.jsx')) color = '#facc15'; 
-                    else if (part.endsWith('.md')) color = '#fff'; 
-                    else color = '#94a3b8'; 
-                } else {
-                    if (part === 'src') { color = '#ef4444'; val = 10; } 
-                    else if (part === 'components') { color = '#f97316'; val = 8; } 
-                    else if (part === 'hooks' || part === 'services') { color = '#8b5cf6'; val = 8; } 
-                }
-
-                nodes.push({ id: currentPath, name: part, group, val, color, fullPath: currentPath, lines: isFile ? file.lines : 0 });
-                links.push({ source: parentPath, target: currentPath, color: '#334155' });
-            }
-        });
+        const child = current.children.get(part)!;
+        if (!isFile) {
+          child.fileCount += 1;
+        } else {
+          child.lineCount = file.lines;
+        }
+        current.fileCount += 1;
+        current = child;
+      });
     });
-    return { nodes, links };
+
+    let folderCount = 0;
+    let fileCount = 0;
+    let totalLines = 0;
+    const folderStats: Array<{ name: string; count: number }> = [];
+
+    const walk = (node: TreeNode, depth = 0) => {
+      if (node.type === 'folder') {
+        folderCount += 1;
+        if (depth === 1) folderStats.push({ name: node.name, count: node.fileCount });
+      } else {
+        fileCount += 1;
+        totalLines += node.lineCount;
+      }
+      node.children.forEach((c) => walk(c, depth + 1));
+    };
+    walk(root);
+
+    const topFolders = folderStats.sort((a, b) => b.count - a.count).slice(0, 4);
+    return { root, folderCount: Math.max(folderCount - 1, 0), fileCount, totalLines, topFolders };
   }, [fileMap]);
 
-  const handleZoomIn = () => fgRef.current?.zoom(fgRef.current.zoom() * 1.2, 400);
-  const handleZoomOut = () => fgRef.current?.zoom(fgRef.current.zoom() * 0.8, 400);
-  const handleReset = () => fgRef.current?.zoomToFit(400);
+  const toggle = (path: string) => setExpanded((prev) => ({ ...prev, [path]: !(prev[path] ?? true) }));
 
   if (Object.keys(fileMap).length === 0) return null;
 
+  const rootChildren = Array.from(root.children.values()).sort((a, b) => a.name.localeCompare(b.name));
+
   return (
-    <div className={`mt-8 bg-[#0f172a] rounded-[2.5rem] overflow-hidden border border-slate-700 shadow-2xl relative transition-all duration-500 group ring-4 ring-slate-900/5 ${isFullscreen ? 'fixed inset-4 z-50 h-[calc(100vh-2rem)]' : 'h-[500px]'}`} ref={containerRef}>
-        
-        {/* Header Overlay */}
-        <div className="absolute top-0 left-0 right-0 p-6 flex justify-between items-start pointer-events-none z-10 bg-gradient-to-b from-[#0f172a] to-transparent">
-            <div>
-                <h3 className="text-white font-black text-xl flex items-center gap-2 drop-shadow-md tracking-tight">
-                    <Share2 className="w-5 h-5 text-brand-400" />
-                    Project Galaxy
-                </h3>
-                <p className="text-slate-400 text-[10px] font-bold mt-1 pl-7 tracking-wider uppercase opacity-70">
-                   Interactive File System • {graphData.nodes.length} Nodes
-                </p>
-            </div>
-            
-            <div className="flex flex-col gap-2 pointer-events-auto">
-                <div className="flex gap-1.5 bg-slate-800/60 backdrop-blur-md p-1.5 rounded-2xl border border-slate-700 shadow-lg">
-                    <button onClick={handleZoomIn} className="p-2 hover:bg-white/10 rounded-xl text-slate-300 transition-colors"><ZoomIn className="w-4 h-4"/></button>
-                    <button onClick={handleZoomOut} className="p-2 hover:bg-white/10 rounded-xl text-slate-300 transition-colors"><ZoomOut className="w-4 h-4"/></button>
-                    <button onClick={handleReset} className="p-2 hover:bg-white/10 rounded-xl text-slate-300 transition-colors"><RotateCcw className="w-4 h-4"/></button>
-                </div>
-                <button 
-                    onClick={() => setIsFullscreen(!isFullscreen)} 
-                    className="self-end p-3 bg-brand-600 hover:bg-brand-500 text-white rounded-2xl shadow-lg shadow-brand-500/20 transition-all border border-brand-400/50 hover:scale-105 active:scale-95"
-                >
-                    {isFullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-                </button>
-            </div>
+    <div className="mt-6 rounded-[2rem] border border-slate-200 bg-gradient-to-b from-white to-slate-50/70 p-5">
+      <div className="flex items-center justify-between gap-4 mb-4">
+        <div>
+          <h3 className="text-xl font-black text-slate-800 flex items-center gap-2">
+            <Layers3 className="w-5 h-5 text-violet-600" />
+            درخت ساختار مخزن
+          </h3>
+          <p className="text-xs text-slate-500 mt-1">نمای کامل همه پوشه‌ها و فایل‌های اسکن‌شده با ساختار درختی</p>
         </div>
-
-        {/* Legend Overlay */}
-        <div className="absolute bottom-6 left-6 pointer-events-none z-10 space-y-2">
-             <div className="bg-slate-900/80 backdrop-blur-xl border border-slate-700 p-4 rounded-[1.5rem] flex flex-col gap-2.5 text-[10px] text-slate-300 shadow-xl">
-                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-yellow-400 shadow-[0_0_8px_rgba(250,204,21,0.5)]"></div> Root</div>
-                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-slate-500"></div> Folder</div>
-                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-sky-400"></div> TypeScript</div>
-                 <div className="flex items-center gap-2"><div className="w-2.5 h-2.5 rounded-full bg-pink-400"></div> Styles</div>
-             </div>
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+            <p className="text-[10px] text-slate-400">پوشه</p>
+            <p className="text-sm font-black text-slate-700">{folderCount}</p>
+          </div>
+          <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+            <p className="text-[10px] text-slate-400">فایل</p>
+            <p className="text-sm font-black text-slate-700">{fileCount}</p>
+          </div>
+          <div className="rounded-xl bg-white border border-slate-200 px-3 py-2">
+            <p className="text-[10px] text-slate-400">LoC</p>
+            <p className="text-sm font-black text-slate-700">{totalLines.toLocaleString()}</p>
+          </div>
         </div>
+      </div>
 
-        <div className="cursor-grab active:cursor-grabbing w-full h-full">
-            <ForceGraph2D
-                ref={fgRef}
-                width={dimensions.width}
-                height={dimensions.height}
-                graphData={graphData}
-                backgroundColor="#0f172a"
-                nodeLabel="name"
-                nodeColor="color"
-                nodeRelSize={4}
-                linkColor={() => '#334155'}
-                linkWidth={1}
-                d3VelocityDecay={0.1}
-                cooldownTicks={100}
-                onEngineStop={() => fgRef.current?.zoomToFit(400, 50)}
-                nodeCanvasObject={(node: any, ctx, globalScale) => {
-                    const label = node.name;
-                    const fontSize = 12/globalScale;
-                    ctx.font = `${fontSize}px Sans-Serif`;
-                    
-                    if (node.group === 'root' || node.val > 8) {
-                        ctx.beginPath();
-                        ctx.arc(node.x, node.y, 8, 0, 2 * Math.PI, false);
-                        ctx.fillStyle = node.color;
-                        ctx.globalAlpha = 0.2;
-                        ctx.fill();
-                        ctx.globalAlpha = 1.0;
-                    }
-
-                    ctx.beginPath();
-                    ctx.arc(node.x, node.y, node.val, 0, 2 * Math.PI, false);
-                    ctx.fillStyle = node.color;
-                    ctx.fill();
-
-                    if (globalScale > 1.2 || node.val > 5) {
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillStyle = 'rgba(255, 255, 255, 0.9)';
-                        ctx.fillText(label, node.x, node.y + node.val + 2);
-                    }
-                }}
-            />
+      {!!topFolders.length && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {topFolders.map((f) => (
+            <span key={f.name} className="text-xs px-2.5 py-1 rounded-full bg-violet-50 text-violet-700 border border-violet-100">
+              {f.name} • {f.count} فایل
+            </span>
+          ))}
         </div>
+      )}
+
+      <div className="max-h-[520px] overflow-auto rounded-2xl border border-slate-200 bg-white p-3">
+        {rootChildren.map((node) => (
+          <TreeItem key={node.path} node={node} depth={0} expanded={expanded} toggle={toggle} />
+        ))}
+      </div>
     </div>
   );
 };
