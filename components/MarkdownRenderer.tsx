@@ -99,14 +99,6 @@ const ApiJsonBlock = ({ jsonText, onFileClick }: { jsonText: string; onFileClick
 };
 
 
-const normalizeCommentedMarkdown = (value: string): string => {
-  return value
-    .split('\n')
-    .map((line) => line.replace(/^\s*\/\/\s?/, ''))
-    .join('\n')
-    .trim();
-};
-
 const looksLikeMarkdownContent = (value: string): boolean => {
   const text = value.trim();
   if (!text) return false;
@@ -125,10 +117,41 @@ const looksLikeMarkdownContent = (value: string): boolean => {
 
   const commentSignals = lines.filter((line) => /^\/\//.test(line)).length;
   const codeSignals = lines.filter((line) =>
-    /(import\s+.+from|export\s+|const\s+\w+\s*=|function\s+\w+|class\s+\w+|=>|<\w+[^>]*>)/.test(line)
+    /(import\s+.+from|export\s+|const\s+\w+\s*=|function\s+\w+|class\s+\w+|=>|<\w+[^>]*>|return\s+|;\s*$)/.test(line)
   ).length;
 
-  return (markdownSignals >= 2 || commentSignals >= Math.max(2, Math.floor(lines.length * 0.5))) && codeSignals <= Math.max(1, Math.floor(lines.length * 0.2));
+  return (markdownSignals >= 2 || commentSignals >= Math.max(3, Math.floor(lines.length * 0.4))) && codeSignals <= Math.max(3, Math.floor(lines.length * 0.6));
+};
+
+const convertCommentedCodeToMixedMarkdown = (value: string, lang: string): string => {
+  const lines = value.split('\n');
+  const out: string[] = [];
+  let codeBucket: string[] = [];
+
+  const flushCode = () => {
+    if (!codeBucket.length) return;
+    out.push(`\n\`\`\`${lang || 'ts'}`);
+    out.push(...codeBucket);
+    out.push('\`\`\`\n');
+    codeBucket = [];
+  };
+
+  for (const raw of lines) {
+    const line = raw || '';
+    const commentMatch = line.match(/^\s*\/\/\s?(.*)$/);
+    if (commentMatch) {
+      flushCode();
+      out.push(commentMatch[1]);
+    } else if (!line.trim()) {
+      if (codeBucket.length) codeBucket.push('');
+      else out.push('');
+    } else {
+      codeBucket.push(line);
+    }
+  }
+
+  flushCode();
+  return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
 const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) => {
@@ -158,10 +181,11 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
     return <div className="my-5 p-4 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 whitespace-pre-wrap">{codeText}</div>;
   }
 
-  // Some responses incorrectly label markdown prose as TS/TSX and even prefix lines with // comments.
+  // Some responses incorrectly label markdown prose as TS/TSX and prefix narrative lines with //.
+  // Convert those blocks into mixed markdown + real fenced code so prose renders normally.
   const codeLikeLang = ['ts', 'tsx', 'typescript', 'js', 'jsx', 'javascript'];
   if (!inline && codeLikeLang.includes(lang) && looksLikeMarkdownContent(codeText)) {
-    const repaired = normalizeCommentedMarkdown(codeText);
+    const mixedMarkdown = convertCommentedCodeToMixedMarkdown(codeText, lang);
     return (
       <div className="my-5 p-5 bg-white border border-slate-200 rounded-xl" dir="rtl">
         <ReactMarkdown remarkPlugins={[remarkGfm]} components={{
@@ -173,7 +197,8 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
           table: ({ children }) => <div className="overflow-x-auto border border-slate-200 rounded-lg my-3"><table className="min-w-full bg-white">{children}</table></div>,
           th: ({ children }) => <th className="bg-slate-50 p-2 text-xs font-bold border-b border-slate-200">{children}</th>,
           td: ({ children }) => <td className="p-2 text-xs border-b border-slate-100">{children}</td>,
-        }}>{repaired}</ReactMarkdown>
+          code: (props) => <CodeBlock {...props} onFileClick={onFileClick} />,
+        }}>{mixedMarkdown}</ReactMarkdown>
       </div>
     );
   }
