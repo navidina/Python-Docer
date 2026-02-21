@@ -176,7 +176,7 @@ const convertCommentedCodeToMixedMarkdown = (value: string, lang: string): strin
   return out.join('\n').replace(/\n{3,}/g, '\n\n').trim();
 };
 
-const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) => {
+const CodeBlock = ({ inline, className, children, onFileClick, disableSmartNormalize = false, ...props }: any) => {
   const codeText = String(children).replace(/\n$/, '');
   const match = /language-(\w+)/.exec(className || '');
   const lang = match ? match[1].toLowerCase() : '';
@@ -206,7 +206,8 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
   // Some responses incorrectly label markdown prose as TS/TSX and prefix narrative lines with //.
   // Convert those blocks into mixed markdown + real fenced code so prose renders normally.
   const codeLikeLang = ['ts', 'tsx', 'typescript', 'js', 'jsx', 'javascript'];
-  if (!inline && codeLikeLang.includes(lang) && looksLikeMarkdownContent(codeText)) {
+  const shouldNormalizeNarrativeCode = !disableSmartNormalize && codeText.length <= 20000;
+  if (!inline && shouldNormalizeNarrativeCode && codeLikeLang.includes(lang) && looksLikeMarkdownContent(codeText)) {
     const mixedMarkdown = convertCommentedCodeToMixedMarkdown(codeText, lang);
     return (
       <div className="my-5 p-5 bg-white border border-slate-200 rounded-xl" dir="rtl">
@@ -219,7 +220,7 @@ const CodeBlock = ({ inline, className, children, onFileClick, ...props }: any) 
           table: ({ children }) => <div className="overflow-x-auto border border-slate-200 rounded-lg my-3"><table className="min-w-full bg-white">{children}</table></div>,
           th: ({ children }) => <th className="bg-slate-50 p-2 text-xs font-bold border-b border-slate-200">{children}</th>,
           td: ({ children }) => <td className="p-2 text-xs border-b border-slate-100">{children}</td>,
-          code: (props) => <CodeBlock {...props} onFileClick={onFileClick} />,
+          code: (props) => <CodeBlock {...props} onFileClick={onFileClick} disableSmartNormalize={true} />,
         }}>{mixedMarkdown}</ReactMarkdown>
       </div>
     );
@@ -331,7 +332,7 @@ const MarkdownRenderer: React.FC<MarkdownRendererProps> = ({ content, onFileClic
               </a>
             );
           },
-          code: (props) => <CodeBlock {...props} onFileClick={onFileClick} />,
+          code: (props) => <CodeBlock {...props} onFileClick={onFileClick} disableSmartNormalize={true} />,
         }}
       >
         {processedContent}
