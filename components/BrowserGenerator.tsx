@@ -8,6 +8,8 @@ import MarkdownRenderer from './MarkdownRenderer';
 import LiveVisualization from './LiveVisualization';
 import ProjectStructureVisualizer from './ProjectStructureVisualizer';
 import Playground from './Playground';
+import ApiExplorerView from './ApiExplorerView';
+import CodeViewerModal from './CodeViewerModal';
 
 interface BrowserGeneratorProps {
   config: OllamaConfig;
@@ -109,11 +111,32 @@ const BentoDashboard = ({ stats, docParts, knowledgeGraph, archViolations, fileM
     );
 };
 
-const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string; knowledgeGraph: any }) => {
+const ProjectOverviewRenderer = ({ content, knowledgeGraph, onFileClick }: { content: string; knowledgeGraph: any; onFileClick?: (path: string, line?: number) => void }) => {
     const lines = content.split('\n').map(l => l.trim()).filter(Boolean);
     const title = lines.find(l => l.startsWith('#'))?.replace(/^#+\s*/, '') || 'معرفی پروژه';
     const firstParagraph = lines.find(l => !l.startsWith('#') && !l.startsWith('-') && !l.startsWith('*') && !l.startsWith('|') && !l.startsWith('```')) || 'این بخش خلاصه‌ای از هدف، دامنه و ارزش پروژه را نمایش می‌دهد.';
     const bullets = lines.filter(l => l.startsWith('- ') || l.startsWith('* ')).slice(0, 6).map(l => l.replace(/^[-*]\s*/, ''));
+
+    const extractBulletParts = (bullet: string) => {
+        const sourceMatch = bullet.match(/\[\[[^\]]+\]\]$/);
+        const source = sourceMatch ? sourceMatch[0] : '';
+        const withoutSource = source ? bullet.replace(source, '').trim() : bullet;
+
+        const strongMatch = withoutSource.match(/^\*\*(.+?)\*\*[:：]?\s*(.*)$/);
+        if (strongMatch) {
+            return {
+                title: strongMatch[1].trim(),
+                description: strongMatch[2].trim(),
+                source
+            };
+        }
+
+        return {
+            title: withoutSource,
+            description: '',
+            source
+        };
+    };
 
     return (
         <div className="space-y-6">
@@ -137,26 +160,48 @@ const ProjectOverviewRenderer = ({ content, knowledgeGraph }: { content: string;
             </div>
 
             {bullets.length > 0 && (
-                <div className="rounded-3xl border border-slate-100 bg-white p-6">
-                    <h3 className="text-lg font-extrabold text-slate-800 mb-4">نکات کلیدی پروژه</h3>
-                    <ul className="space-y-2">
-                        {bullets.map((b, i) => (
-                            <li key={i} className="text-slate-600 flex items-start gap-2"><span className="text-brand-500 mt-1">•</span><span>{b}</span></li>
-                        ))}
-                    </ul>
+                <div className="rounded-3xl border border-slate-100 bg-gradient-to-b from-white to-slate-50/60 p-6">
+                    <div className="flex items-center justify-between mb-5">
+                        <h3 className="text-xl font-extrabold text-slate-800">نکات کلیدی پروژه</h3>
+                        <span className="text-[11px] text-brand-700 bg-brand-50 border border-brand-100 px-2.5 py-1 rounded-full font-bold">{bullets.length} نکته</span>
+                    </div>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-3">
+                        {bullets.map((b, i) => {
+                            const item = extractBulletParts(b);
+                            return (
+                                <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm hover:shadow-md hover:border-brand-200 transition-all">
+                                    <div className="flex items-start gap-3">
+                                        <div className="w-7 h-7 shrink-0 rounded-full bg-brand-600 text-white text-xs font-black flex items-center justify-center">{i + 1}</div>
+                                        <div className="min-w-0">
+                                            <p className="text-slate-800 font-extrabold leading-7 text-[15px]">{item.title}</p>
+                                            {item.description && (
+                                                <p className="text-slate-600 text-sm leading-7 mt-1">{item.description}</p>
+                                            )}
+                                            {item.source && (
+                                                <div className="mt-2 text-[11px] text-brand-700 font-mono bg-brand-50 border border-brand-100 px-2 py-1 rounded-lg inline-block">
+                                                    {item.source}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
             )}
 
             <div className="rounded-3xl border border-slate-100 bg-white p-6">
                 <h3 className="text-lg font-extrabold text-slate-800 mb-4">جزئیات کامل</h3>
-                <MarkdownRenderer content={content} knowledgeGraph={knowledgeGraph} isEditable={true} sectionId="root" showTOC={true} />
+                <MarkdownRenderer content={content} knowledgeGraph={knowledgeGraph} isEditable={true} sectionId="root" showTOC={true} onFileClick={onFileClick} />
             </div>
         </div>
     );
 };
 
 // Mini Component for Sparkline
-const ApiJsonRenderer = ({ content }: { content: string }) => {
+const ApiJsonRenderer = ({ content, onFileClick }: { content: string; onFileClick?: (path: string, line?: number) => void }) => {
     const parseApiJson = (raw: string) => {
         const direct = raw.trim();
         const candidates: string[] = [direct];
@@ -187,11 +232,11 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
     };
 
     const parsed = parseApiJson(content);
-    if (!parsed) return <MarkdownRenderer content={content} />;
+    if (!parsed) return <MarkdownRenderer content={content} onFileClick={onFileClick} />;
 
     try {
         const endpoints = Array.isArray(parsed?.endpoints) ? parsed.endpoints : [];
-        if (!endpoints.length) return <MarkdownRenderer content={content} />;
+        if (!endpoints.length) return <MarkdownRenderer content={content} onFileClick={onFileClick} />;
 
         return (
             <div className="space-y-6" dir="ltr">
@@ -241,7 +286,7 @@ const ApiJsonRenderer = ({ content }: { content: string }) => {
             </div>
         );
     } catch {
-        return <MarkdownRenderer content={content} />;
+        return <MarkdownRenderer content={content} onFileClick={onFileClick} />;
     }
 };
 
@@ -268,11 +313,18 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
     api: true,
     components: true,
     api_ref: true,
+    examples: true,
+    testing: true,
     smart_audit: false
   });
 
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'docs' | 'chat' | 'diagrams' | 'code' | 'api_explorer'>('dashboard');
   const [selectedDocSection, setSelectedDocSection] = useState<string>('root');
+
+  const [isCodeModalOpen, setIsCodeModalOpen] = useState(false);
+  const [codeModalPath, setCodeModalPath] = useState('');
+  const [codeModalContent, setCodeModalContent] = useState('');
+  const [codeModalLine, setCodeModalLine] = useState<number | undefined>(undefined);
 
   const docSections = [
     { id: 'root', label: 'نمای کلی پروژه' },
@@ -280,6 +332,8 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
     { id: 'arch', label: 'معماری' },
     { id: 'api_ref', label: 'مرجع API' },
     { id: 'components', label: 'کامپوننت‌ها' },
+    { id: 'examples', label: 'مثال‌های کد' },
+    { id: 'testing', label: 'راهنمای تست' },
     { id: 'erd', label: 'پایگاه داده' },
   ];
   
@@ -313,6 +367,50 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
       docParts
   );
 
+
+  const resolveCandidatePaths = (clickedPath: string) => {
+    const normalized = clickedPath.replace(/^\.\//, '').trim();
+    const base = normalized.split('/').pop() || normalized;
+    const candidates = new Set<string>([clickedPath, normalized, base]);
+
+    Object.values(knowledgeGraph || {}).forEach((sym: any) => {
+      const fp = sym?.filePath;
+      if (!fp || typeof fp !== 'string') return;
+      if (fp === normalized || fp.endsWith('/' + normalized) || fp.endsWith('/' + base) || fp === base) {
+        candidates.add(fp);
+      }
+    });
+
+    return Array.from(candidates).filter(Boolean);
+  };
+
+  const handleFileClick = async (path: string, line?: number) => {
+    const candidates = resolveCandidatePaths(path);
+    for (const candidate of candidates) {
+      try {
+        const resp = await fetch('http://localhost:8000/get-file', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ path: candidate })
+        });
+
+        if (!resp.ok) continue;
+        const data = await resp.json();
+        if (data?.content) {
+          setCodeModalPath(data.path || candidate);
+          setCodeModalContent(String(data.content));
+          setCodeModalLine(line);
+          setIsCodeModalOpen(true);
+          return;
+        }
+      } catch {
+        // try next candidate
+      }
+    }
+
+    alert(`File not found in backend index: ${path}`);
+  };
+
   const handleStart = () => {
     processRepository({
         config,
@@ -327,7 +425,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
   const handleDownload = () => {
       // Reconstruct full doc from current parts to include edits
       let fullContent = "";
-      const order = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'api_ref', 'smart_audit'];
+      const order = ['root', 'setup', 'arch', 'erd', 'sequence', 'api', 'components', 'examples', 'testing', 'api_ref', 'smart_audit'];
       
       order.forEach(key => {
           if (docParts[key]) {
@@ -368,6 +466,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                 { id: 'diagrams', icon: GitMerge, label: 'دیاگرام‌ها' },
                 { id: 'code', icon: Code, label: 'تحلیل کد' },
                 { id: 'chat', icon: MessageSquare, label: 'چت هوشمند' },
+                { id: 'api_explorer', icon: ServerCog, label: 'کاوشگر API' },
             ].map(item => (
                 <div key={item.id}>
                     <button
@@ -404,16 +503,6 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             ))}
         </div>
 
-        <div className="mt-auto px-6 hidden lg:block">
-            <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
-                <p className="text-[10px] font-bold text-slate-400 uppercase mb-2">وضعیت سیستم</p>
-                <div className="flex items-center gap-2">
-                    <div className={`w-2 h-2 rounded-full ${hasContext ? 'bg-emerald-500' : 'bg-slate-300'}`}></div>
-                    <span className="text-xs font-bold text-slate-600">{hasContext ? 'آماده' : 'غیرفعال'}</span>
-                </div>
-                {hasContext && <p className="text-[10px] text-slate-400 mt-1">{Object.keys(knowledgeGraph).length} Symbols</p>}
-            </div>
-        </div>
     </div>
   );
 
@@ -591,7 +680,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                  <FileText className="w-5 h-5 text-brand-500" /> پیش‌نمایش معرفی
                              </h3>
                              <div className="h-64 overflow-y-auto custom-scrollbar opacity-80 text-sm">
-                                 <MarkdownRenderer content={docParts['root'] || 'Generating...'} />
+                                 <MarkdownRenderer content={docParts['root'] || 'Generating...'} onFileClick={handleFileClick} />
                              </div>
                          </div>
                          <div className="bg-white rounded-[1.5rem] p-6 shadow-sm border border-slate-200">
@@ -624,9 +713,9 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                     <div className="bg-white rounded-[2rem] p-6 lg:p-10 shadow-sm border border-slate-200 min-h-[800px]">
                         {docParts[selectedDocSection] ? (
                             selectedDocSection === 'api_ref'
-                                ? <ApiJsonRenderer content={docParts[selectedDocSection]} />
+                                ? <ApiJsonRenderer content={docParts[selectedDocSection]} onFileClick={handleFileClick} />
                                 : selectedDocSection === 'root'
-                                    ? <ProjectOverviewRenderer content={docParts[selectedDocSection]} knowledgeGraph={knowledgeGraph} />
+                                    ? <ProjectOverviewRenderer content={docParts[selectedDocSection]} knowledgeGraph={knowledgeGraph} onFileClick={handleFileClick} />
                                     : <MarkdownRenderer 
                                         content={docParts[selectedDocSection]} 
                                         knowledgeGraph={knowledgeGraph} 
@@ -634,6 +723,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                         sectionId={selectedDocSection}
                                         onSave={saveManualOverride}
                                         showTOC={true}
+                                        onFileClick={handleFileClick}
                                     />
                         ) : (
                             <div className="flex flex-col items-center justify-center h-full text-slate-300 gap-4">
@@ -664,7 +754,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                          <h3 className="font-bold text-lg capitalize">{key} Diagram</h3>
                                          <span className="text-xs bg-slate-100 px-3 py-1 rounded-full text-slate-500 font-mono">Mermaid</span>
                                      </div>
-                                     <MarkdownRenderer content={docParts[key]} />
+                                     <MarkdownRenderer content={docParts[key]} onFileClick={handleFileClick} />
                                 </div>
                             )
                         ))}
@@ -683,6 +773,13 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                          <h2 className="text-2xl font-black text-slate-800 mb-6">Playground</h2>
                          <Playground />
                     </div>
+                </div>
+            )}
+
+
+            {activeTab === 'api_explorer' && (
+                <div className="animate-in fade-in slide-in-from-bottom-4 duration-500"> 
+                    <ApiExplorerView content={docParts['api_ref'] || ''} />
                 </div>
             )}
 
@@ -711,7 +808,7 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
                                      ? 'bg-white text-slate-700 rounded-tr-none border border-slate-100' 
                                      : 'bg-brand-50 text-brand-900 rounded-tl-none border border-brand-100'
                                  }`}>
-                                     <MarkdownRenderer content={msg.content} />
+                                     <MarkdownRenderer content={msg.content} onFileClick={handleFileClick} />
                                  </div>
                              </div>
                          ))}
@@ -754,6 +851,14 @@ const BrowserGenerator: React.FC<BrowserGeneratorProps> = ({ config }) => {
             )}
             
         </div>
+    
+      <CodeViewerModal
+        isOpen={isCodeModalOpen}
+        filePath={codeModalPath}
+        content={codeModalContent}
+        initialLine={codeModalLine}
+        onClose={() => setIsCodeModalOpen(false)}
+      />
     </div>
   );
 };
